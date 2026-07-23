@@ -1,0 +1,45 @@
+{
+    "name": "ezee/integration-runtime-sdk",
+    "description": "PHP SDK for HMAC-signed requests to the Integration Runtime /v1 API. Mirrors the runtime's canonical-payload + signature contract byte-for-byte.",
+    "type": "library",
+    "license": "proprietary",
+    "require": {
+        "php": ">=8.2",
+        "psr/http-client": "^1.0",
+        "psr/http-factory": "^1.0",
+        "psr/http-message": "^1.1 || ^2.0"
+    },
+    "require-dev": {
+        "ext-ctype": "*",
+        "guzzlehttp/guzzle": "^7.8",
+        "laravel/pint": "^1.13",
+        "phpstan/phpstan": "^2.1",
+        "phpunit/phpunit": "^11.0"
+    },
+    "autoload": {
+        "psr-4": {
+            "Ezee\\IntegrationRuntime\\": "src/"
+        }
+    },
+    "autoload-dev": {
+        "psr-4": {
+            "Ezee\\IntegrationRuntime\\Tests\\": "tests/"
+        }
+    },
+    "config": {
+        "platform": {
+            "php": "8.2.0"
+        },
+        "sort-packages": true
+    },
+    "scripts": {
+        "test": "phpunit",
+        "analyse": "phpstan analyse",
+        "lint": "pint --test",
+        "format": "pint",
+        "fixtures": "php tools/generate-wire-fixtures.php"
+    },
+    "suggest": {
+        "ext-sodium": "Best-effort zeroing of decoded key material (sodium_memzero)"
+    }
+}

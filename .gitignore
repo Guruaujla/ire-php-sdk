@@ -1,0 +1,7 @@
+/vendor/
+/.phpunit.cache/
+/.pint.cache
+# Local overrides of the .dist configs must never be committed — they would
+# silently supersede the level-max / test settings CI enforces.
+/phpstan.neon
+/phpunit.xml
