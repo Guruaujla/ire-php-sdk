@@ -4,13 +4,19 @@ declare(strict_types=1);
 
 namespace Ezee\IntegrationRuntime\Tests;
 
+use Ezee\IntegrationRuntime\Client;
+use Ezee\IntegrationRuntime\Exception\InvalidMethodException;
 use Ezee\IntegrationRuntime\Exception\InvalidNonceException;
 use Ezee\IntegrationRuntime\Exception\InvalidSecretException;
 use Ezee\IntegrationRuntime\SignedRequest;
 use Ezee\IntegrationRuntime\Signer;
+use GuzzleHttp\Psr7\HttpFactory;
 use PHPUnit\Framework\Attributes\CoversClass;
 use PHPUnit\Framework\Attributes\DataProvider;
 use PHPUnit\Framework\TestCase;
+use Psr\Http\Client\ClientInterface;
+use Psr\Http\Message\RequestInterface;
+use Psr\Http\Message\ResponseInterface;
 
 /**
  * Unit tests for the Signer primitives: secret decoding, hashing, base64url,
@@ -54,6 +60,168 @@ final class SignerTest extends TestCase
         yield 'embedded space' => ['ab cd'];
         yield 'embedded newline' => ["ab\ncd"];
         yield 'embedded equals' => ['ab=cd'];
+    }
+
+    /**
+     * The empty/whitespace-only branch reports "must not be empty", NOT a
+     * charset error: an operator staring at an invisible value is not helped
+     * by being told to hunt for an unexpected character. Byte-identical
+     * message and branch in all three SDKs (issue #138).
+     */
+    #[DataProvider('blankSecrets')]
+    public function testDecodeSecretReportsBlankSecretsAsEmpty(string $secret): void
+    {
+        $this->expectException(InvalidSecretException::class);
+        $this->expectExceptionMessage('service-key secret must not be empty');
+        Signer::decodeSecret($secret);
+    }
+
+    /**
+     * @return iterable<string, array{string}>
+     */
+    public static function blankSecrets(): iterable
+    {
+        yield 'empty string' => [''];
+        yield 'single padding char' => ['='];
+        yield 'padding only' => ['===='];
+        yield 'spaces only' => ['   '];
+        yield 'tab only' => ["\t"];
+        yield 'newline only' => ["\n"];
+        yield 'every ASCII whitespace' => [" \t\n\v\f\r"];
+    }
+
+    /**
+     * THE cross-SDK regression this guard exists for (found in review of the
+     * #138/#139 sweep).
+     *
+     * This method previously anchored its charset check with
+     * `/^[A-Za-z0-9_-]+$/`, and PCRE's `$` ALSO matches immediately before a
+     * final newline. So a trailing-newline secret passed the check here while
+     * the TypeScript SDK (JS `$` anchors only at end of input) and the Python
+     * SDK (`\A…\Z`) rejected it — and it did not stop at a different error
+     * message: 43 + 1 = 44 is ≡0 (mod 4) and `base64_decode` skips whitespace,
+     * so PHP went on to derive the CORRECT key from a malformed value. One
+     * config value, two behaviours across the SDKs — exactly what #138 exists
+     * to remove. The anchor is now `\A…\z` (PCRE's `\Z` is the LENIENT one;
+     * Python's `\Z` is the strict one — do not translate the spellings by eye).
+     *
+     * Note that `nonBase64UrlSecrets` already carried "ab\ncd" — an EMBEDDED
+     * newline, which the `$`-vs-`\z` anchor treats identically. That is
+     * precisely why the bug survived review: only a LEADING or TRAILING one
+     * discriminates, so those are asserted here.
+     *
+     * What this test pins is the WHITESPACE GUARD, not the anchor. The guard
+     * runs first and shadows the charset check for every input here, so
+     * mutating the anchor alone leaves this green — measured, not assumed.
+     * Removing the guard turns these into the charset message (10 failures);
+     * removing the guard AND loosening the anchor makes decodeSecret ACCEPT
+     * the trailing-newline secret and derive the correct 32-byte key, which is
+     * the originally reported defect.
+     *
+     * The message is deliberately not the charset one: the character is
+     * INVISIBLE, and sending an operator hunting through a base64 blob for
+     * something they cannot see is not help.
+     */
+    #[DataProvider('surroundingWhitespaceSecrets')]
+    public function testDecodeSecretRejectsSurroundingWhitespace(string $secret): void
+    {
+        $this->expectException(InvalidSecretException::class);
+        $this->expectExceptionMessage(
+            'service-key secret must not have leading or trailing whitespace '
+            . '(usually a trailing newline from a file-mounted secret)',
+        );
+        Signer::decodeSecret($secret);
+    }
+
+    /**
+     * Hostile characters are built with chr()/escape sequences, never typed as
+     * literals — an invisible character that a file write or an editor
+     * normalises leaves a test that passes while asserting nothing.
+     *
+     * @return iterable<string, array{string}>
+     */
+    public static function surroundingWhitespaceSecrets(): iterable
+    {
+        // The exact reported shape: the published 43-char console secret as a
+        // file-mounted value, carrying the newline that `$(cat secret.txt)`, a
+        // `.env` line, or a Kubernetes/Docker secret file leaves on it.
+        yield 'real console secret + trailing newline' => [self::TEST_SECRET . chr(0x0A)];
+        yield 'trailing newline, length 3 mod 4' => ['AAA' . chr(0x0A)];
+        yield 'trailing newline, length 0 mod 4' => ['AAAA' . chr(0x0A)];
+        yield 'leading newline' => [chr(0x0A) . 'AAAA'];
+        yield 'leading space' => [chr(0x20) . 'AAAA'];
+        yield 'trailing space' => ['AAAA' . chr(0x20)];
+        yield 'trailing tab' => ['AAAA' . chr(0x09)];
+        yield 'trailing CR' => ['AAAA' . chr(0x0D)];
+        yield 'trailing vertical tab' => ['AAAA' . chr(0x0B)];
+        yield 'trailing form feed' => ['AAAA' . chr(0x0C)];
+    }
+
+    /**
+     * Negative control: the guard must reject SURROUNDING whitespace and
+     * nothing else, or every correctly configured caller starts failing at
+     * credential-loading time instead of signing.
+     */
+    public function testDecodeSecretWhitespaceGuardIsNotOverBroad(): void
+    {
+        self::assertSame(32, strlen(Signer::decodeSecret(self::TEST_SECRET)));
+        self::assertSame(
+            Signer::decodeSecret('AAAA'),
+            Signer::decodeSecret('AAAA='),
+            'padding is still tolerated — the guard must not have swallowed it',
+        );
+    }
+
+    #[DataProvider('nonBase64UrlSecrets')]
+    public function testDecodeSecretReportsUnexpectedCharacters(string $secret): void
+    {
+        $this->expectException(InvalidSecretException::class);
+        $this->expectExceptionMessage('service-key secret is not valid base64url (unexpected characters)');
+        Signer::decodeSecret($secret);
+    }
+
+    /**
+     * @return iterable<string, array{string}>
+     */
+    public static function nonBase64UrlSecrets(): iterable
+    {
+        yield 'standard-base64 plus' => ['ab+cd'];
+        yield 'standard-base64 slash' => ['ab/cd'];
+        yield 'embedded space' => ['ab cd'];
+        yield 'embedded newline' => ["ab\ncd"];
+        yield 'embedded equals' => ['ab=cd'];
+        yield 'punctuation' => ['abc$def'];
+    }
+
+    public function testLengthValidStandardBase64SecretIsRejectedByTheCharsetGuard(): void
+    {
+        // The charset guard must be reachable independently of the length
+        // guard: every other invalid-charset case above is ALSO length-invalid.
+        // A standard-base64 (not base64url) secret of a legal length would
+        // otherwise decode SILENTLY to different key bytes than the base64url
+        // reading — every request 401ing with a "wrong key" smell.
+        self::assertSame(0, strlen('++//') % 4, 'must be length-valid so only the charset can reject it');
+
+        $this->expectException(InvalidSecretException::class);
+        $this->expectExceptionMessage('service-key secret is not valid base64url (unexpected characters)');
+        Signer::decodeSecret('++//');
+    }
+
+    public function testDecodeSecretReportsInvalidLengthSeparately(): void
+    {
+        // No base64 payload can be ≡1 (mod 4) chars; the message says so
+        // rather than blaming the charset.
+        foreach (['A', 'AAAAA', 'A==='] as $secret) {
+            try {
+                Signer::decodeSecret($secret);
+                self::fail("decodeSecret('{$secret}') should have thrown");
+            } catch (InvalidSecretException $e) {
+                self::assertSame(
+                    'service-key secret is not valid base64url (invalid length)',
+                    $e->getMessage(),
+                );
+            }
+        }
     }
 
     public function testDecodeSecretRoundTripsAllLengths(): void
@@ -151,6 +319,133 @@ final class SignerTest extends TestCase
 
         self::assertSame($upper, $lower);
         self::assertStringContainsString("\nPOST\n", $lower);
+    }
+
+    // ---------------------------------------------------------------- canonicalizeMethod
+
+    /**
+     * Methods whose UNICODE upper-case folds onto an allowlist member but
+     * whose ASCII upper-case does not. These are the exact inputs behind
+     * issue #139: before the allowlist, "optıons" was ACCEPTED by the
+     * TypeScript and Python SDKs (both upper-case U+0131 to "I") and produced
+     * "OPTıONS" here — one call, two canonical payloads, an undiagnosable 401.
+     *
+     * @return list<string>
+     */
+    private static function unicodeLookalikeMethods(): array
+    {
+        return [
+            "opt\u{0131}ons",  // U+0131 LATIN SMALL LETTER DOTLESS I -> "I"
+            "po\u{017F}t",     // U+017F LATIN SMALL LETTER LONG S -> "S"
+        ];
+    }
+
+    public function testCanonicalizeMethodReturnsTheAllowlistConstantForEveryAsciiSpelling(): void
+    {
+        foreach (Signer::HTTP_METHODS as $method) {
+            self::assertSame($method, Signer::canonicalizeMethod($method));
+            self::assertSame($method, Signer::canonicalizeMethod(strtolower($method)));
+            self::assertSame(
+                $method,
+                Signer::canonicalizeMethod($method[0] . strtolower(substr($method, 1))),
+            );
+        }
+    }
+
+    public function testHttpMethodsIsExactlyTheNineStandardMethods(): void
+    {
+        self::assertSame(
+            ['CONNECT', 'DELETE', 'GET', 'HEAD', 'OPTIONS', 'PATCH', 'POST', 'PUT', 'TRACE'],
+            Signer::HTTP_METHODS,
+        );
+    }
+
+    public function testEveryAllowlistedMethodIsPureUpperCaseAscii(): void
+    {
+        // This is what makes the runtime's Unicode `String.prototype
+        // .toUpperCase` (src/security/hmac.ts) and this SDK's ASCII
+        // `strtoupper` provably agree: over pure upper-case ASCII, both case
+        // mappings are the identity. Adding a method that violates this would
+        // silently re-open the divergence #139 closed.
+        foreach (Signer::HTTP_METHODS as $method) {
+            self::assertMatchesRegularExpression('/^[A-Z]+$/', $method);
+        }
+    }
+
+    #[DataProvider('unsupportedMethods')]
+    public function testCanonicalizeMethodRejectsUnsupportedMethods(string $method): void
+    {
+        $this->expectException(InvalidMethodException::class);
+        Signer::canonicalizeMethod($method);
+    }
+
+    /**
+     * @return iterable<string, array{string}>
+     */
+    public static function unsupportedMethods(): iterable
+    {
+        yield 'unknown verb' => ['BREW'];
+        yield 'WebDAV verb outside RFC 9110' => ['PROPFIND'];
+        yield 'empty' => [''];
+        yield 'leading space' => [' GET'];
+        yield 'trailing space' => ['GET '];
+        yield 'header injection attempt' => ["GET\r\nX-Evil: 1"];
+
+        foreach (self::unicodeLookalikeMethods() as $method) {
+            yield 'unicode lookalike ' . bin2hex($method) => [$method];
+        }
+    }
+
+    public function testCanonicalizeMethodMessageNamesTheInputAndTheAllowedSet(): void
+    {
+        // Byte-identical wording across the three SDKs — asserted here, in
+        // signing.test.ts, and in test_signer.py.
+        $this->expectException(InvalidMethodException::class);
+        $this->expectExceptionMessage(
+            'method "brew" is not a supported HTTP method '
+            . '(expected one of: CONNECT, DELETE, GET, HEAD, OPTIONS, PATCH, POST, PUT, TRACE)',
+        );
+        Signer::canonicalizeMethod('brew');
+    }
+
+    public function testComputeCanonicalPayloadRejectsAnUnsupportedMethod(): void
+    {
+        $this->expectException(InvalidMethodException::class);
+        Signer::computeCanonicalPayload("po\u{017F}t", '/v1/x', '1700000000', str_repeat('n', 22), '');
+    }
+
+    public function testClientRejectsAnUnsupportedMethodBeforeBuildingAnyRequest(): void
+    {
+        // Asserted through the CLIENT entry point, not just the signer: the
+        // client used to `strtoupper` the method itself, so a canonicalizer
+        // wired into Signer alone would leave the client free to disagree with
+        // it — the exact re-entry point for #139. (This assertion lives here
+        // rather than in ClientTest because it pins Signer's contract; the
+        // PSR-18 stub below throws if anything tries to send.)
+        $factory = new HttpFactory();
+        $client = new Client(
+            new class implements ClientInterface {
+                public function sendRequest(RequestInterface $request): ResponseInterface
+                {
+                    throw new \LogicException('no request may be sent for a rejected method');
+                }
+            },
+            $factory,
+            $factory,
+            'https://ir.example.com',
+            'app_erp',
+            'key_primary',
+            self::TEST_SECRET,
+        );
+
+        foreach ([...self::unicodeLookalikeMethods(), 'BREW'] as $method) {
+            try {
+                $client->createSignedRequest($method, '/v1/health');
+                self::fail("createSignedRequest('{$method}') should have thrown");
+            } catch (InvalidMethodException $e) {
+                self::assertStringContainsString('is not a supported HTTP method', $e->getMessage());
+            }
+        }
     }
 
     // ---------------------------------------------------------------- generateNonce

@@ -4,6 +4,7 @@ declare(strict_types=1);
 
 namespace Ezee\IntegrationRuntime;
 
+use Ezee\IntegrationRuntime\Exception\InvalidMethodException;
 use Ezee\IntegrationRuntime\Exception\InvalidNonceException;
 use Ezee\IntegrationRuntime\Exception\InvalidSecretException;
 
@@ -18,7 +19,7 @@ use Ezee\IntegrationRuntime\Exception\InvalidSecretException;
  *
  * Canonical payload format (CURRENT-STATE §4.2 / src/security/hmac.ts):
  *   v1
- *   METHOD                    upper-cased
+ *   METHOD                    an HTTP_METHODS constant (see canonicalizeMethod)
  *   PATH_WITH_QUERY           pathname + search (leading slash, encoded query)
  *   TIMESTAMP                 unix seconds (string, exactly as sent in header)
  *   NONCE                     string length in [22, 64]
@@ -43,13 +44,98 @@ final class Signer
     public const NONCE_MAX_LEN = 64;
 
     /**
+     * The closed set of HTTP methods this SDK will sign — RFC 9110 §9.3's
+     * standard methods plus PATCH (RFC 5789).
+     *
+     * The canonical payload embeds the method TEXTUALLY, so all four
+     * implementations (this SDK, the TypeScript and Python SDKs, and the
+     * runtime's verifier) must agree on its spelling for EVERY input, not just
+     * the ones a well-behaved caller sends. Case mapping is the trap: this
+     * SDK's `strtoupper` is ASCII-only, while JS `String.prototype.toUpperCase`
+     * and Python's `str.upper()` are Unicode-aware. So "optıons" (with U+0131
+     * DOTLESS I) upper-cases to "OPTIONS" there and stays "OPTıONS" here: one
+     * input, two canonical payloads, and a uniform 401 nobody can diagnose.
+     * That was the single defect behind all 126 Python↔PHP fuzz mismatches in
+     * issue #139 — invisible to review, found only by measurement.
+     *
+     * Matching the casing functions to each other is not a reachable target,
+     * and this is the part a future reader is most likely to undo: Unicode case
+     * mapping is a property of each RUNTIME's Unicode table, not of our code. A
+     * sweep of 0..0x10FFFF found 95 code points where Node 26 (Unicode 17.0)
+     * and Python 3.9 (Unicode 13.0) already disagree with each other — so
+     * "Python matched the verifier" was luck on one sample, not a property, and
+     * any "just make the casing agree" fix would drift apart again on the next
+     * interpreter or Node upgrade, in three runtimes independently.
+     *
+     * The fix therefore removes the dependency on case mapping instead of
+     * chasing it: ASCII-upper-case the input, look the result up in this
+     * allowlist, and write the MATCHED CONSTANT into the payload (see
+     * {@see canonicalizeMethod}). Every accepted input therefore signs a
+     * literal from this array — no locale and no Unicode table can reach it.
+     *
+     * Restricting to this set is not the SDK enforcing the runtime's route
+     * table: the runtime answers 404/405 for a method it does not route, which
+     * is a diagnosable outcome, unlike the uniform 401 a mis-canonicalized
+     * method produces.
+     *
+     * @var list<string>
+     */
+    public const HTTP_METHODS = [
+        'CONNECT',
+        'DELETE',
+        'GET',
+        'HEAD',
+        'OPTIONS',
+        'PATCH',
+        'POST',
+        'PUT',
+        'TRACE',
+    ];
+
+    /**
      * 24 random bytes base64url-encode to exactly 32 chars (192 bits of
      * entropy) — safely inside the [22, 64] window with margin on both ends.
      */
     private const NONCE_BYTES = 24;
 
+    /**
+     * ASCII whitespace, spelled out as explicit characters rather than via a
+     * PCRE class or a bare `trim()`: PCRE's `\v` also matches U+0085 and the
+     * TypeScript/Python SDKs carry this same six-character set, so an input
+     * lands in the same branch — and gets the same message — in all three.
+     */
+    private const ASCII_WHITESPACE = " \t\n\v\f\r";
+
     /** Static-only class. */
     private function __construct() {}
+
+    /**
+     * Canonicalize an HTTP method to the exact constant that goes into the
+     * canonical payload.
+     *
+     * Public because {@see Client} needs the SAME canonical form to pick its
+     * no-body methods (GET/HEAD/DELETE); calling `strtoupper` there instead
+     * would let the client and the signer disagree about what a method means.
+     *
+     * @throws InvalidMethodException when $method is not in {@see HTTP_METHODS}
+     */
+    public static function canonicalizeMethod(string $method): string
+    {
+        // strtoupper is ASCII-only and locale-independent on PHP >= 8.2 (this
+        // package's floor), so it is a correct ASCII-upper step. What makes
+        // the result SAFE, though, is the lookup below: the value returned is
+        // the allowlist constant, never the output of the casing function.
+        $index = array_search(strtoupper($method), self::HTTP_METHODS, true);
+        if ($index === false) {
+            throw new InvalidMethodException(sprintf(
+                'method "%s" is not a supported HTTP method (expected one of: %s)',
+                $method,
+                implode(', ', self::HTTP_METHODS),
+            ));
+        }
+
+        return self::HTTP_METHODS[$index];
+    }
 
     /**
      * Reconstruct raw HMAC key bytes from the base64url secret string.
@@ -60,6 +146,20 @@ final class Signer
      * decodes to the same raw key the runtime envelope-decrypts at verify
      * time. Trailing "=" padding is tolerated (the console emits none).
      *
+     * Every rejection here is a LOCAL error at credential-loading time, named
+     * after the actual problem. That is the point (issue #138): an unset
+     * IR_SERVICE_KEY_SECRET is the single most likely way a product backend
+     * misconfigures the SDK, and the verifier answers a uniform 401 by design —
+     * it can never tell the caller their secret was blank, but this function
+     * can. The checks and their exact messages are shared with `decodeSecret`
+     * (TypeScript) and `decode_secret` (Python); this side was already correct,
+     * and TypeScript was aligned TO it rather than the other way round.
+     *
+     * Padding is tolerated deliberately (leniency in the forgiving direction):
+     * the console emits a 43-char, never-padded secret, so a padded spelling
+     * only arises from a config system that added one — and it still derives
+     * the same key.
+     *
      * @return string raw key bytes
      *
      * @throws InvalidSecretException on empty input or invalid base64url
@@ -67,10 +167,44 @@ final class Signer
     public static function decodeSecret(#[\SensitiveParameter] string $secret): string
     {
         $trimmed = rtrim($secret, '=');
-        if ($trimmed === '') {
+        if (trim($trimmed, self::ASCII_WHITESPACE) === '') {
+            // Covers '' and whitespace-only alike. Reported as EMPTY rather
+            // than as a charset error because an operator staring at an
+            // invisible value is not helped by being told to hunt for an
+            // unexpected character.
             throw new InvalidSecretException('service-key secret must not be empty');
         }
-        if (preg_match('/^[A-Za-z0-9_-]+$/', $trimmed) !== 1) {
+        if (trim($trimmed, self::ASCII_WHITESPACE) !== $trimmed) {
+            // Named separately from the charset error below because the
+            // character is INVISIBLE: "unexpected characters" sends an operator
+            // hunting through a base64 blob for something they cannot see. The
+            // overwhelmingly common cause is a trailing newline — a
+            // file-mounted Kubernetes/Docker secret, `$(cat secret.txt)`, or a
+            // `.env` line — so the message names it.
+            throw new InvalidSecretException(
+                'service-key secret must not have leading or trailing whitespace '
+                . '(usually a trailing newline from a file-mounted secret)',
+            );
+        }
+        // `\A…\z`, NOT `^…$`: PCRE's `$` also matches immediately BEFORE a final
+        // newline, so `^[A-Za-z0-9_-]+$` accepts "…sL8\n" — and since a 43-char
+        // console secret plus "\n" is 44 chars (≡0 mod 4) and base64_decode()
+        // skips whitespace, PHP would go on to derive the CORRECT key from it.
+        // JS's `$` has no such rule and Python anchors with `\A…\Z`, so this
+        // single character was the difference between PHP silently accepting a
+        // malformed secret and the other two rejecting it. `\z` is absolute
+        // end-of-subject, matching both. (PCRE's `\Z` is the lenient one;
+        // Python's `\Z` is the strict one — do not "harmonize" the spellings by
+        // eye.)
+        //
+        // BELT AND BRACES, and deliberately so: the whitespace guard above now
+        // rejects every leading/trailing-whitespace input before control reaches
+        // here, which means NO behavioural test can distinguish `\z` from `$` in
+        // this function — mutating this anchor alone leaves the suite green
+        // (verified). It stays strict anyway, because the guard being the only
+        // defence is a property of the current check ORDER, and a future edit
+        // that reorders or narrows the guard would silently re-open the hole.
+        if (preg_match('/\A[A-Za-z0-9_-]+\z/', $trimmed) !== 1) {
             throw new InvalidSecretException(
                 'service-key secret is not valid base64url (unexpected characters)',
             );
@@ -111,6 +245,8 @@ final class Signer
      * runtime's `computeCanonicalPayload` for the same inputs — the whole
      * point of the SDK. `$bodyBytes` is the RAW body exactly as sent on the
      * wire (empty string for GET/HEAD/DELETE — see Client).
+     *
+     * @throws InvalidMethodException when $method is not in {@see HTTP_METHODS}
      */
     public static function computeCanonicalPayload(
         string $method,
@@ -119,11 +255,9 @@ final class Signer
         string $nonce,
         string $bodyBytes,
     ): string {
-        // strtoupper is ASCII-only/locale-independent on PHP >= 8.2, matching
-        // JS String.prototype.toUpperCase for the ASCII method names.
         return implode("\n", [
             'v1',
-            strtoupper($method),
+            self::canonicalizeMethod($method),
             $pathWithQuery,
             $timestamp,
             $nonce,
@@ -152,13 +286,14 @@ final class Signer
      * @param string      $appId         product backend's app id — sent as X-IR-App-Id
      * @param string      $keyId         service key id — sent as X-IR-Key-Id
      * @param string      $secret        the base64url secret string from the service-keys console (shown once)
-     * @param string      $method        HTTP method; upper-cased into the payload
+     * @param string      $method        HTTP method; canonicalized into the payload — see {@see canonicalizeMethod}
      * @param string      $pathWithQuery pathname + encoded query with leading slash, e.g. "/v1/sync-jobs?status=running"
      * @param string      $bodyBytes     RAW body bytes to hash — sign the exact bytes you send ('' for GET/HEAD/DELETE)
      * @param string|null $timestamp     override the unix-seconds timestamp string (defaults to now)
      * @param string|null $nonce         override the nonce (defaults to a fresh random base64url nonce)
      *
      * @throws InvalidNonceException  when a supplied nonce is outside [22, 64]
+     * @throws InvalidMethodException when $method is not in {@see HTTP_METHODS}
      * @throws InvalidSecretException when the secret is not valid base64url
      */
     public static function signRequest(

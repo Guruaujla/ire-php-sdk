@@ -5,6 +5,7 @@ declare(strict_types=1);
 namespace Ezee\IntegrationRuntime\Tests;
 
 use Ezee\IntegrationRuntime\Client;
+use Ezee\IntegrationRuntime\RetryPolicy;
 use Ezee\IntegrationRuntime\Signer;
 use GuzzleHttp\Psr7\HttpFactory;
 use GuzzleHttp\Psr7\Response;
@@ -36,7 +37,77 @@ final class MockHttpClient implements ClientInterface
     }
 }
 
+/**
+ * PSR-18 stub that answers a SCRIPTED sequence of responses and records EVERY
+ * request. The retry tests need all of them — the acceptance property is about
+ * how attempt 2 differs from attempt 1, not just that a retry happened.
+ */
+final class ScriptedHttpClient implements ClientInterface
+{
+    /** @var list<RequestInterface> */
+    public array $requests = [];
+
+    /** @param list<ResponseInterface> $script one response per attempt, in order */
+    public function __construct(private readonly array $script) {}
+
+    public function sendRequest(RequestInterface $request): ResponseInterface
+    {
+        $this->requests[] = $request;
+        $index = count($this->requests) - 1;
+        if (! isset($this->script[$index])) {
+            throw new \LogicException(sprintf(
+                'sendRequest called %d time(s) but the script has %d response(s)',
+                $index + 1,
+                count($this->script),
+            ));
+        }
+
+        return $this->script[$index];
+    }
+}
+
+/**
+ * A 429 whose `Retry-After` is handed back RAW, bypassing PSR-7 validation.
+ *
+ * Guzzle validates header values in the Response constructor and rejects any
+ * string containing CR, LF or NUL — so the characters the three SDKs have to
+ * agree about (\n, \r, \v, \f, NUL) mostly cannot be expressed through a normal
+ * Response at all. That validation is a defence, not the contract under test:
+ * without this stub the trim would be barely exercised here, and a test named
+ * for the trim would in fact be asserting Guzzle's behaviour. Overriding
+ * getHeaderLine() is enough because Client reads the header only through it.
+ */
+final class RawRetryAfterResponse extends Response
+{
+    public function __construct(private readonly string $rawRetryAfter)
+    {
+        parent::__construct(429, [], '{}');
+    }
+
+    // Signature intentionally untyped on $header: Guzzle's Response declares it
+    // without a parameter type, and PHP requires an override to be compatible.
+    public function getHeaderLine($header): string
+    {
+        return strtolower((string) $header) === 'retry-after'
+            ? $this->rawRetryAfter
+            : parent::getHeaderLine($header);
+    }
+}
+
+/** Testing seam for Client's $sleep: records the seconds instead of sleeping. */
+final class SleepRecorder
+{
+    /** @var list<float> */
+    public array $seconds = [];
+
+    public function __invoke(float $seconds): void
+    {
+        $this->seconds[] = $seconds;
+    }
+}
+
 #[CoversClass(Client::class)]
+#[CoversClass(RetryPolicy::class)]
 final class ClientTest extends TestCase
 {
     /**
@@ -411,5 +482,506 @@ final class ClientTest extends TestCase
 
         $this->expectException(\LogicException::class);
         serialize($this->client);
+    }
+
+    // ── Retry on 429 (issue #134) ──────────────────────────────────────────
+    //
+    // The acceptance property is NOT "it retried" — it is "every attempt is a
+    // COMPLETELY FRESH signed request". A Layer 2 quota 429 lands after
+    // serviceAuth has already burned the request's nonce, so a resend of the
+    // identical bytes answers 401 hmac.nonce_reused. See the class doc block
+    // in src/Client.php.
+
+    /** A 429 shaped like the runtime's, optionally carrying Retry-After. */
+    private static function tooManyRequests(?string $retryAfter = null): Response
+    {
+        $headers = $retryAfter === null ? [] : ['Retry-After' => $retryAfter];
+
+        return new Response(429, $headers, '{"type":"rate_limit.quota_exceeded","status":429}');
+    }
+
+    /**
+     * A client wired to a scripted transport with both testing seams injected,
+     * so no test ever actually sleeps.
+     *
+     * @param float $randomRoll the fixed jitter roll; the real seam returns [0, 1)
+     */
+    private function retryingClient(
+        ScriptedHttpClient $http,
+        SleepRecorder $sleeps,
+        float $randomRoll = 0.0,
+        ?RetryPolicy $retry = null,
+    ): Client {
+        $factory = new HttpFactory();
+
+        return new Client(
+            $http,
+            $factory,
+            $factory,
+            'https://ir.example.com',
+            self::APP_ID,
+            self::KEY_ID,
+            self::SECRET,
+            $retry,
+            $sleeps(...),
+            static fn(): float => $randomRoll,
+        );
+    }
+
+    public function testEverySignedAttemptGetsAFreshNonceOverByteIdenticalBody(): void
+    {
+        // A body whose serialization is caller code that is NOT pure: it
+        // returns a different document on every jsonSerialize() call. If body
+        // normalization ran inside the retry loop, attempts 2 and 3 would sign
+        // and send a different document from attempt 1. This is PHP's stand-in
+        // for mutating a caller-supplied buffer (strings here are immutable).
+        $body = new class implements \JsonSerializable {
+            public int $calls = 0;
+
+            /** @return array<string, int> */
+            public function jsonSerialize(): array
+            {
+                $this->calls++;
+
+                return ['n' => $this->calls];
+            }
+        };
+
+        $http = new ScriptedHttpClient([
+            self::tooManyRequests('1'),
+            self::tooManyRequests('1'),
+            new Response(200, [], '{"ok":true}'),
+        ]);
+        $sleeps = new SleepRecorder();
+        $client = $this->retryingClient($http, $sleeps);
+
+        $response = $client->send('POST', '/v1/operations/execute', $body);
+
+        // 1. exactly three requests were sent, and the last response is returned.
+        self::assertCount(3, $http->requests);
+        self::assertSame(200, $response->getStatusCode());
+        self::assertCount(2, $sleeps->seconds);
+
+        // 2. the three nonces are ALL DISTINCT — the load-bearing assertion. A
+        //    replay of the buffered signed request would repeat one nonce here
+        //    and earn a 401 hmac.nonce_reused from the real runtime.
+        $nonces = array_map(
+            static fn(RequestInterface $r): string => $r->getHeaderLine('X-IR-Nonce'),
+            $http->requests,
+        );
+        self::assertCount(3, array_unique($nonces), 'every attempt must carry a FRESH nonce');
+        foreach ($nonces as $nonce) {
+            self::assertGreaterThanOrEqual(Signer::NONCE_MIN_LEN, strlen($nonce));
+        }
+
+        // 3. the three signatures are all distinct, and each verifies over ITS
+        //    OWN timestamp + nonce (assertSignatureVerifies). That recomputation
+        //    is what proves re-SIGNING rather than a copied header block: a
+        //    signature carried over from attempt 1 cannot match a recomputation
+        //    against attempt 2's nonce. Distinct TIMESTAMPS are not assertable
+        //    — the client deliberately has no clock seam and three attempts land
+        //    inside one unix second — so this is the proof that each timestamp
+        //    was re-derived and re-signed rather than reused.
+        $signatures = array_map(
+            static fn(RequestInterface $r): string => $r->getHeaderLine('X-IR-Signature'),
+            $http->requests,
+        );
+        self::assertCount(3, array_unique($signatures), 'every attempt must be re-SIGNED');
+
+        foreach ($http->requests as $index => $request) {
+            // 4. byte-identical bodies across all three attempts.
+            self::assertSame(
+                '{"n":1}',
+                (string) $request->getBody(),
+                "attempt {$index} sent different body bytes",
+            );
+            self::assertSame('https://ir.example.com/v1/operations/execute', (string) $request->getUri());
+            self::assertMatchesRegularExpression('/^\d+$/', $request->getHeaderLine('X-IR-Timestamp'));
+            $this->assertSignatureVerifies($request);
+        }
+
+        // The body really was serialized exactly ONCE, before the loop.
+        self::assertSame(1, $body->calls, 'the body must be normalized once, not per attempt');
+    }
+
+    public function testA500IsNotRetried(): void
+    {
+        // Only a 429 is guaranteed side-effect-free (it is refused before any
+        // handler runs). A 5xx may mean the write landed, so it is returned.
+        $http = new ScriptedHttpClient([new Response(500, [], '{}'), new Response(200, [], '{}')]);
+        $sleeps = new SleepRecorder();
+
+        $response = $this->retryingClient($http, $sleeps)
+            ->send('POST', '/v1/operations/execute', ['a' => 1]);
+
+        self::assertSame(500, $response->getStatusCode());
+        self::assertCount(1, $http->requests);
+        self::assertSame([], $sleeps->seconds);
+    }
+
+    /** @return iterable<string, array{float, float}> */
+    public static function jitterRolls(): iterable
+    {
+        // Retry-After: 5 → the sleep is 5 + roll * 0.25 * 5, i.e. [5, 6.25].
+        yield 'no jitter' => [0.0, 5.0];
+        yield 'half jitter' => [0.5, 5.625];
+        yield 'almost full jitter' => [0.999999, 6.24999875];
+    }
+
+    #[DataProvider('jitterRolls')]
+    public function testRetryAfterIsHonouredAndJitterIsAddedOnTop(float $roll, float $expected): void
+    {
+        $http = new ScriptedHttpClient([self::tooManyRequests('5'), new Response(200, [], '{}')]);
+        $sleeps = new SleepRecorder();
+
+        $this->retryingClient($http, $sleeps, $roll)->send('GET', '/v1/health');
+
+        self::assertEqualsWithDelta($expected, $sleeps->seconds[0], 1e-9);
+        // The floor is the advertised window ITSELF: retrying earlier would hit
+        // the same unreset window and burn another nonce for nothing.
+        self::assertGreaterThanOrEqual(5.0, $sleeps->seconds[0]);
+        self::assertLessThanOrEqual(6.25, $sleeps->seconds[0]);
+    }
+
+    /**
+     * Sleeps recorded while send() walks one 429 carrying $retryAfter VERBATIM,
+     * followed by a 200.
+     *
+     * Uses {@see RawRetryAfterResponse} rather than a normal PSR-7 Response:
+     * Guzzle validates header values on construction and rejects any string
+     * containing CR, LF or NUL, so most of the characters the three SDKs must
+     * agree about cannot be expressed through the normal path at all. That
+     * validation is a defence, not the contract under test — the TypeScript
+     * suite bypasses its own Headers API for exactly the same reason and with
+     * the same inputs (see `rawHeaderFetch` there).
+     *
+     * @return list<float>
+     */
+    private function sleepsForRawRetryAfter(string $retryAfter): array
+    {
+        $http = new ScriptedHttpClient([
+            new RawRetryAfterResponse($retryAfter),
+            new Response(200, [], '{}'),
+        ]);
+        $sleeps = new SleepRecorder();
+
+        $this->retryingClient($http, $sleeps)->send('GET', '/v1/health');
+
+        return $sleeps->seconds;
+    }
+
+    /**
+     * Every member of the six-character ASCII whitespace set the three SDKs
+     * share. Built with chr(), never typed as a literal — an invisible
+     * character that a file write or an editor normalises leaves a test that
+     * passes while asserting nothing.
+     *
+     * @return iterable<string, array{string}>
+     */
+    public static function paddedRetryAfterValues(): iterable
+    {
+        yield 'unpadded' => ['5'];
+        yield 'spaces' => [chr(0x20) . '5' . chr(0x20)];
+        yield 'tab' => [chr(0x09) . '5' . chr(0x09)];
+        yield 'newline' => [chr(0x0A) . '5' . chr(0x0A)];
+        yield 'carriage return' => [chr(0x0D) . '5' . chr(0x0D)];
+        yield 'vertical tab' => [chr(0x0B) . '5' . chr(0x0B)];
+        yield 'form feed' => [chr(0x0C) . '5' . chr(0x0C)];
+    }
+
+    #[DataProvider('paddedRetryAfterValues')]
+    public function testRetryAfterIsTrimmedBeforeParsing(string $retryAfter): void
+    {
+        // PSR-7's getHeaderLine() does NOT trim, so without an explicit trim
+        // here the three SDKs would disagree on " 5 ".
+        //
+        // The trim uses an EXPLICIT six-character set rather than bare trim():
+        // PHP's default charlist omits \f and includes NUL, JS's .trim() covers
+        // Unicode White_Space plus U+FEFF, and Python's .strip() covers Unicode
+        // but not U+FEFF. Three built-ins, three answers — measured, they
+        // disagreed on \f and NUL. Same defect shape as the method-casing bug
+        // in #139, so it gets the same treatment: spell the set out.
+        self::assertSame([5.0], $this->sleepsForRawRetryAfter($retryAfter));
+    }
+
+    /**
+     * A policy whose COMPUTED delay overflows is rejected at construction.
+     *
+     * Each field is individually finite and non-negative, so the per-field
+     * checks all pass — and the product is INF. That policy used to construct
+     * happily and fail on the first 429, differently in each SDK: PHP casts INF
+     * and does not wait, JS `setTimeout(Infinity)` fires after ~1ms and
+     * hot-loops the retry, Python's `time.sleep(inf)` raises. A policy that
+     * validates and then cannot work is worse than one that never validated,
+     * because the failure lands mid-incident.
+     */
+    public function testAPolicyWhoseComputedDelayOverflowsIsRejected(): void
+    {
+        $this->expectException(\InvalidArgumentException::class);
+        $this->expectExceptionMessage('must be <=');
+        new RetryPolicy(maxDelaySeconds: PHP_FLOAT_MAX, jitterFraction: 1.0);
+    }
+
+    /**
+     * Finite but past the SHARED ceiling is rejected too.
+     *
+     * PHP could sleep for 30 days; JS `setTimeout` cannot (it overflows beyond
+     * 2^31-1 ms and fires immediately). The bound is shared so all three SDKs
+     * accept an identical set of policies — a config every SDK takes and only
+     * two honour is the divergence this package exists to avoid.
+     */
+    public function testAFinitePolicyPastTheSharedCeilingIsRejected(): void
+    {
+        $this->expectException(\InvalidArgumentException::class);
+        $this->expectExceptionMessage('must be <=');
+        new RetryPolicy(maxDelaySeconds: 30 * 24 * 60 * 60);
+    }
+
+    /** The defaults are nowhere near the ceiling: 60 * 1.25 = 75 seconds. */
+    public function testTheDefaultPolicyIsWellInsideTheCeiling(): void
+    {
+        $policy = new RetryPolicy();
+
+        self::assertSame(75.0, $policy->maxDelaySeconds * (1 + $policy->jitterFraction));
+        self::assertLessThan(RetryPolicy::MAX_TOTAL_DELAY_SECONDS, 75.0);
+    }
+
+    /**
+     * The DEFAULT sleeper must never hand usleep() a value above 1_000_000.
+     *
+     * PHP's manual warns that usleep() "may not be supported by the operating
+     * system" beyond one second, and this is reachable with DEFAULT config
+     * rather than some exotic policy: the runtime advertises `Retry-After: 60`,
+     * so the ordinary rate-limit path used to land on usleep(60_000_000). Where
+     * that is unsupported the call returns WITHOUT waiting, and the client
+     * re-signs and re-sends straight into the same rate limit — a hot loop
+     * burning a fresh nonce per pass, against a runtime already asking it to
+     * slow down.
+     *
+     * Asserted on the arithmetic rather than by sleeping: a test that really
+     * waited 60 seconds would be deleted by the next person to run the suite.
+     * The expression mirrors the constructor's default sleeper.
+     */
+    #[DataProvider('backoffDurations')]
+    public function testTheDefaultSleeperNeverExceedsUsleepsDocumentedRange(
+        float $seconds,
+        int $expectedWholeSeconds,
+        int $expectedMicroseconds,
+    ): void {
+        $whole = (int) floor($seconds);
+        $micro = (int) round(($seconds - $whole) * 1_000_000);
+        if ($micro >= 1_000_000) {
+            $whole++;
+            $micro -= 1_000_000;
+        }
+
+        self::assertSame($expectedWholeSeconds, $whole);
+        self::assertSame($expectedMicroseconds, $micro);
+        self::assertLessThan(1_000_000, $micro, 'usleep() must never be handed a full second or more');
+        self::assertGreaterThanOrEqual(0, $micro);
+        // The split must still add up to the delay the policy computed.
+        self::assertEqualsWithDelta($seconds, $whole + $micro / 1_000_000, 1e-6);
+    }
+
+    /** @return iterable<string, array{float, int, int}> */
+    public static function backoffDurations(): iterable
+    {
+        // The default path: Retry-After 60, no jitter.
+        yield 'default 60s window' => [60.0, 60, 0];
+        // 60s + full jitter at the defaults — the longest sleep this SDK issues.
+        yield 'capped window plus jitter' => [75.0, 75, 0];
+        yield 'sub-second' => [0.25, 0, 250000];
+        yield 'exponential fallback' => [1.0, 1, 0];
+        yield 'fractional over a second' => [1.5, 1, 500000];
+        // round() carries the remainder to a FULL second here, which is the
+        // case the carry guard exists for and the one a naive split gets wrong
+        // (it would call usleep(1_000_000) — exactly the boundary the manual
+        // warns about). Value chosen by measurement: 1.9999995 does NOT carry,
+        // because in double precision it is 1.99999949999..., so the product
+        // rounds to 999999. Reasoning about which decimals carry is how you
+        // write a test that passes for the wrong reason.
+        yield 'rounds up into the next second' => [1.9999999, 2, 0];
+        yield 'carries from a sub-second delay' => [0.9999999, 1, 0];
+    }
+
+    /**
+     * NON-ASCII whitespace is NOT trimmed, in any of the three SDKs.
+     *
+     * The point is the agreement, not the direction: an HTTP header value has
+     * no business carrying U+00A0 or a BOM, and whichever way the three
+     * behaved would be defensible — what is not defensible is behaving
+     * differently. Before the trim was harmonized, "\u{00A0}5" honoured a 5s
+     * window in TypeScript and Python but fell back to 1s backoff here.
+     *
+     * Same inputs as the TypeScript and Python suites.
+     *
+     * @return iterable<string, array{string}>
+     */
+    public static function nonAsciiWhitespaceRetryAfterValues(): iterable
+    {
+        yield 'leading NBSP' => ["\u{00A0}5"];
+        yield 'trailing NBSP' => ["5\u{00A0}"];
+        yield 'leading BOM' => ["\u{FEFF}5"];
+        yield 'trailing BOM' => ["5\u{FEFF}"];
+        yield 'leading NUL' => [chr(0x00) . '5'];
+        yield 'trailing NUL' => ['5' . chr(0x00)];
+    }
+
+    #[DataProvider('nonAsciiWhitespaceRetryAfterValues')]
+    public function testNonAsciiWhitespaceAroundRetryAfterFallsBackToBackoff(string $retryAfter): void
+    {
+        // baseDelaySeconds 1.0, attempt 1, jitter roll 0.0 → exactly 1.0s.
+        self::assertSame([1.0], $this->sleepsForRawRetryAfter($retryAfter));
+    }
+
+    /** @return iterable<string, array{string|null}> */
+    public static function unparseableRetryAfterValues(): iterable
+    {
+        yield 'header absent' => [null];
+        yield 'garbage' => ['not-a-number'];
+        // Deliberately NOT parsed: the runtime only emits delay-seconds, and
+        // three per-language date parsers would be three ways to disagree.
+        yield 'RFC 9110 HTTP-date' => ['Wed, 21 Oct 2026 07:28:00 GMT'];
+        yield 'more than 9 digits' => ['1234567890'];
+        yield 'negative' => ['-5'];
+        yield 'fractional' => ['5.5'];
+    }
+
+    #[DataProvider('unparseableRetryAfterValues')]
+    public function testUnparseableRetryAfterFallsBackToExponentialBackoff(?string $retryAfter): void
+    {
+        $http = new ScriptedHttpClient([
+            self::tooManyRequests($retryAfter),
+            self::tooManyRequests($retryAfter),
+            new Response(200, [], '{}'),
+        ]);
+        $sleeps = new SleepRecorder();
+
+        $this->retryingClient($http, $sleeps)->send('GET', '/v1/health');
+
+        // baseDelaySeconds * 2^(n-1) = 1s then 2s.
+        self::assertSame([1.0, 2.0], $sleeps->seconds);
+    }
+
+    public function testAHugeRetryAfterIsCappedAtMaxDelaySeconds(): void
+    {
+        $http = new ScriptedHttpClient([self::tooManyRequests('86400'), new Response(200, [], '{}')]);
+        $sleeps = new SleepRecorder();
+
+        $this->retryingClient($http, $sleeps)->send('GET', '/v1/health');
+
+        self::assertSame([(new RetryPolicy())->maxDelaySeconds], $sleeps->seconds);
+    }
+
+    public function testExhaustedAttemptsRETURNTheFinal429RatherThanThrowing(): void
+    {
+        $http = new ScriptedHttpClient([
+            self::tooManyRequests('1'),
+            self::tooManyRequests('1'),
+            self::tooManyRequests('1'),
+        ]);
+        $sleeps = new SleepRecorder();
+
+        $response = $this->retryingClient($http, $sleeps)
+            ->send('POST', '/v1/operations/execute', ['a' => 1]);
+
+        self::assertSame(429, $response->getStatusCode());
+        // The caller must still be able to read the problem+json body and the
+        // Retry-After header off the real response.
+        self::assertStringContainsString('rate_limit.quota_exceeded', (string) $response->getBody());
+        self::assertSame('1', $response->getHeaderLine('Retry-After'));
+        self::assertCount((new RetryPolicy())->maxAttempts, $http->requests);
+        self::assertCount((new RetryPolicy())->maxAttempts - 1, $sleeps->seconds);
+    }
+
+    public function testMaxAttemptsOneSendsExactlyOnceAndNeverSleeps(): void
+    {
+        // The canonical opt-out: one policy value, no false/null special case.
+        self::assertEquals(new RetryPolicy(maxAttempts: 1), RetryPolicy::disabled());
+
+        foreach ([RetryPolicy::disabled(), new RetryPolicy(maxAttempts: 1)] as $policy) {
+            $http = new ScriptedHttpClient([self::tooManyRequests('1')]);
+            $sleeps = new SleepRecorder();
+
+            $response = $this->retryingClient($http, $sleeps, 0.0, $policy)->send('GET', '/v1/health');
+
+            self::assertSame(429, $response->getStatusCode());
+            self::assertCount(1, $http->requests);
+            self::assertSame([], $sleeps->seconds);
+        }
+    }
+
+    /** @return iterable<string, array{\Closure(): RetryPolicy, string}> */
+    public static function invalidRetryPolicies(): iterable
+    {
+        yield 'zero attempts' => [
+            static fn(): RetryPolicy => new RetryPolicy(maxAttempts: 0),
+            'maxAttempts must be an integer >= 1 (got 0)',
+        ];
+        yield 'negative attempts' => [
+            static fn(): RetryPolicy => new RetryPolicy(maxAttempts: -1),
+            'maxAttempts must be an integer >= 1 (got -1)',
+        ];
+        yield 'negative base delay' => [
+            static fn(): RetryPolicy => new RetryPolicy(baseDelaySeconds: -1.0),
+            'baseDelaySeconds must be a finite number >= 0',
+        ];
+        yield 'negative max delay' => [
+            static fn(): RetryPolicy => new RetryPolicy(maxDelaySeconds: -0.5),
+            'maxDelaySeconds must be a finite number >= 0',
+        ];
+        yield 'infinite max delay' => [
+            static fn(): RetryPolicy => new RetryPolicy(maxDelaySeconds: INF),
+            'maxDelaySeconds must be a finite number >= 0',
+        ];
+        yield 'nan max delay' => [
+            static fn(): RetryPolicy => new RetryPolicy(maxDelaySeconds: NAN),
+            'maxDelaySeconds must be a finite number >= 0',
+        ];
+        yield 'negative jitter' => [
+            static fn(): RetryPolicy => new RetryPolicy(jitterFraction: -0.25),
+            'jitterFraction must be a finite number >= 0',
+        ];
+    }
+
+    /** @param \Closure(): RetryPolicy $construct */
+    #[DataProvider('invalidRetryPolicies')]
+    public function testInvalidRetryPolicyIsRejectedAtConstruction(\Closure $construct, string $message): void
+    {
+        // Fail where the client is wired up, not mid-incident on the first 429.
+        $this->expectException(\InvalidArgumentException::class);
+        $this->expectExceptionMessage($message);
+
+        $construct();
+    }
+
+    public function testZeroDelaysAndZeroJitterAreLegitimate(): void
+    {
+        $policy = new RetryPolicy(maxAttempts: 2, baseDelaySeconds: 0.0, maxDelaySeconds: 0.0, jitterFraction: 0.0);
+        $http = new ScriptedHttpClient([self::tooManyRequests(), new Response(200, [], '{}')]);
+        $sleeps = new SleepRecorder();
+
+        $response = $this->retryingClient($http, $sleeps, 0.0, $policy)->send('GET', '/v1/health');
+
+        self::assertSame(200, $response->getStatusCode());
+        self::assertSame([0.0], $sleeps->seconds, 'a zero-delay policy retries immediately');
+    }
+
+    public function testCreateSignedRequestNeverRetries(): void
+    {
+        // It sends nothing, so there is no response to retry. Re-calling it is
+        // how such a caller gets a fresh nonce.
+        $http = new ScriptedHttpClient([self::tooManyRequests('1')]);
+        $sleeps = new SleepRecorder();
+        $client = $this->retryingClient($http, $sleeps);
+
+        $first = $client->createSignedRequest('GET', '/v1/health');
+        $second = $client->createSignedRequest('GET', '/v1/health');
+
+        self::assertSame([], $http->requests);
+        self::assertNotSame(
+            $first->getHeaderLine('X-IR-Nonce'),
+            $second->getHeaderLine('X-IR-Nonce'),
+        );
     }
 }
