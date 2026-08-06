@@ -109,6 +109,13 @@ final class Client
      */
     private const QUERY_ENCODE_SET = ' "#<>\'';
 
+    /**
+     * One valid percent-escape: `%` followed by exactly two hex digits, with
+     * the hex pair captured. Used by {@see normalizeEscapeCase}; a `%` that
+     * does NOT start a valid escape deliberately does not match (see there).
+     */
+    private const PERCENT_ESCAPE = '/%([0-9A-Fa-f]{2})/';
+
     /** Origin (and optional path prefix), stored with any trailing "/" removed. */
     private readonly string $baseUrl;
 
@@ -269,6 +276,14 @@ final class Client
             );
         }
 
+        // Encoded on the RAW input for the same reason the "\" check above reads
+        // it: the PSR-7 factory parses `baseUrl . $path` as a URL and SPLITS the
+        // fragment off, so by the time the normalization belt below runs there
+        // is no "#" left for encodeRawWhatwgSet to see — and everything after it
+        // is simply gone. See preEncodeRawHash for why dropping it is never the
+        // behaviour a caller wanted.
+        $path = self::preEncodeRawHash($path);
+
         $request = $this->requestFactory->createRequest($method, $this->baseUrl . $path);
         foreach ($headers as $name => $value) {
             $request = $request->withHeader($name, $value);
@@ -280,16 +295,21 @@ final class Client
             $request = $request->withBody($this->streamFactory->createStream($bodyBytes));
         }
 
-        // Sign what the VERIFIER derives: the runtime rebuilds the signed
-        // string via WHATWG `new URL(url).pathname + search`, and WHATWG
-        // percent-encodes some characters that PSR-7 implementations leave
-        // raw (e.g. "'" in a query). Normalize the final URI to the WHATWG
-        // serialization and write it BACK onto the request, so the wire
-        // bytes, the signed bytes, and the verifier's derivation all agree.
+        // Sign what the VERIFIER derives AND what the TRANSPORT sends: the
+        // runtime rebuilds the signed string via WHATWG
+        // `new URL(url).pathname + search`, which percent-encodes some
+        // characters PSR-7 implementations leave raw (e.g. "'" in a query),
+        // while ext-curl rewrites percent-escape hex to upper case in the path
+        // (issue #194). Normalize the final URI for BOTH and write it BACK onto
+        // the request, so the wire bytes, the signed bytes, and the verifier's
+        // derivation all agree. The write-back is what makes the two transports
+        // agree with each other rather than trading one divergence for another:
+        // the stream handler sends the URI verbatim, so normalizing without
+        // writing back would fix curl and break streams.
         $uri = $request->getUri();
         self::assertPathSegmentsSafe($uri->getPath());
-        $encPath = self::encodeRawWhatwgSet($uri->getPath(), self::PATH_ENCODE_SET);
-        $encQuery = self::encodeRawWhatwgSet($uri->getQuery(), self::QUERY_ENCODE_SET);
+        $encPath = self::normalizeEscapeCase(self::encodeRawWhatwgSet($uri->getPath(), self::PATH_ENCODE_SET));
+        $encQuery = self::normalizeEscapeCase(self::encodeRawWhatwgSet($uri->getQuery(), self::QUERY_ENCODE_SET));
         if ($encPath !== $uri->getPath() || $encQuery !== $uri->getQuery()) {
             $request = $request->withUri($uri->withPath($encPath)->withQuery($encQuery));
         }
@@ -443,6 +463,129 @@ final class Client
             static fn(array $m): string => rawurlencode($m[0]),
             $component,
         );
+    }
+
+    /**
+     * Rewrite every valid `%XX` escape to UPPERCASE hex — in the path and in
+     * the query alike.
+     *
+     * WHY (issue #194, and the measurement rather than the RFC): PHP's ext-curl
+     * re-serializes the URL it is handed and upper-cases percent-escape hex in
+     * the PATH, leaving the query alone. A sweep of 112 signed requests through
+     * a raw TCP listener, on Guzzle's curl and stream handlers explicitly,
+     * scored curl 102/112 before this step and stream 112/112 — and every one
+     * of the ten curl divergences was this and only this:
+     *
+     *   signed:  /v1/x/A%7eB?tenant_id=t_1     (what the PSR-7 URI held)
+     *   wire:    /v1/x/A%7EB?tenant_id=t_1     (what curl put in the request line)
+     *
+     * The verifier hashes what ARRIVED, so signed != sent is a 401 — and a
+     * permanent one, because the caller's only recovery is to retry, which
+     * re-signs the identical lowercase string. It is also environment-dependent:
+     * the same SDK, same signed bytes, PASSES on the stream transport, so it
+     * can be green in dev and 401 in prod.
+     *
+     * Upper case is the right side to pick for two independent reasons:
+     * RFC 3986 §6.2.2.1 names uppercase hex the normalized form (curl is doing
+     * the spec-correct thing, not being quirky), and — measured with the same
+     * `new URL()` the verifier uses — WHATWG passes escapes through BYTE-FOR-BYTE
+     * without touching their case. So the upper-cased string is a FIXED POINT of
+     * both the transport and the verifier: curl has nothing left to change, and
+     * the verifier re-derives exactly what was signed.
+     *
+     * Applied to the query too, even though no PHP transport was measured to
+     * touch it, because the cross-SDK contract is one rule for both components
+     * (the TypeScript and Python SDKs normalize both); pinning the query on
+     * "curl happens not to rewrite it" would be inheriting an invariant from a
+     * transport instead of owning it.
+     *
+     * What this deliberately does NOT do — each because it was MEASURED not to
+     * happen on either PHP transport, where the governing rule is "sign exactly
+     * what YOUR transport will emit" (issue #131):
+     *
+     *  - It does not DECODE unreserved escapes (`%7E` -> `~`). Python's SDK does,
+     *    because `requests.utils.unquote_unreserved` does it on the wire. In the
+     *    sweep `%7E`, `%2D`, `%5F`, `%2E` and `%41` all survived a path segment
+     *    untouched on curl AND on streams, so decoding here would create the
+     *    very mismatch it is meant to prevent.
+     *  - It does not encode a lone `%` to `%25`. Python does, again matching
+     *    `requests`. Handing a raw `%` STRAIGHT to each transport — no PSR-7 in
+     *    the path at all, so the answer does not depend on which factory a
+     *    caller injects — put `/v1/x/AB%`, `/v1/x/A%7` and `/v1/x/A%zzB` on the
+     *    wire byte-identically on curl and on streams. (Guzzle's PSR-7 `Uri`
+     *    does encode them to `%25…` before we ever see them; that is its choice
+     *    to make, and either spelling is signed exactly as it is sent.)
+     *
+     * That same no-PSR-7 measurement is what makes this function's scope
+     * defensible: escape-case in the path was the ONLY thing either transport
+     * rewrote. `|`, `[`, `]` and `'` went out raw on both.
+     *
+     * Which is why this file carries no `_TRANSPORT_SET` of its own, unlike the
+     * Python SDK and — since the #196 alignment — the TypeScript one. It does
+     * not need one: `guzzlehttp/psr7`'s `Uri` has already encoded those
+     * characters by the time this belt runs, so the bytes PHP puts on the wire
+     * match the other two anyway. Read that as a coincidence of the default
+     * stack rather than a guarantee — see the CAVEAT below.
+     *
+     * CAVEAT, and it belongs in the contract rather than in a footnote: with the
+     * default Guzzle stack the bytes that actually reach the server for `%`,
+     * `[`, `]`, `|` and a query `\` are ENCODED — but by `guzzlehttp/psr7`'s
+     * `Uri`, not by this class (neither encode set contains those characters).
+     * So do not read PHP's spelling as SDK-owned: inject `nyholm/psr7` or
+     * `laminas-diactoros` and it may differ. What does NOT depend on the factory
+     * is the invariant that matters — this belt runs AFTER the factory, over the
+     * URI the factory produced, so whatever spelling arrives is the spelling
+     * that gets signed, and `signed == sent` holds either way. The measured
+     * cross-SDK table lives in ../../PATH-CONTRACT.md.
+     *
+     * A `%` that does not start a valid escape does not match PERCENT_ESCAPE
+     * and is passed through, so `%zz`, a trailing `%`, and the leading `%` of
+     * `%%7e` are all left exactly as the transport will send them.
+     */
+    private static function normalizeEscapeCase(string $component): string
+    {
+        return (string) preg_replace_callback(
+            self::PERCENT_ESCAPE,
+            // ASCII-only and locale-independent on PHP >= 8.2 (this package's
+            // floor), and the subject is [0-9A-Fa-f] by construction — none of
+            // the Unicode case-mapping hazard that made Signer::HTTP_METHODS an
+            // allowlist applies to a hex pair.
+            static fn(array $m): string => '%' . strtoupper($m[1]),
+            $component,
+        );
+    }
+
+    /**
+     * Percent-encode a RAW "#" anywhere in the caller's `$path` to "%23".
+     *
+     * The `$path` argument is a path+query STRING, never a URL. A signed
+     * request has no fragment concept — the runtime derives its signed string
+     * from `pathname + search` and never sees one — so letting "#" act as a
+     * delimiter cannot do anything for a caller except SILENTLY DISCARD their
+     * data. Measured on the raw listener before this step: `/v1/x/a#b?tenant_id=t_1`
+     * went out as `/v1/x/a`, i.e. signature valid, `tenant_id` gone, 400 from
+     * request validation with nothing in either log pointing at the "#". The
+     * TypeScript SDK had the same hole; Python already encoded it. Issue #195
+     * settled the three-way divergence in favour of encoding (the behaviour
+     * that keeps the caller's bytes).
+     *
+     * MUST run on the raw string, BEFORE `RequestFactoryInterface::createRequest`:
+     * that factory parses `baseUrl . $path` as a URL and splits the fragment off
+     * into a separate component, so the belt further down — which reads only
+     * `getPath()` and `getQuery()` — can never see the "#" or recover what
+     * followed it.
+     *
+     * No split on the first "?" is needed even though the rule must hold in
+     * both components: path and query take the IDENTICAL treatment here (unlike
+     * the "\" rejection and the two WHATWG encode sets, which differ by
+     * component), and the replacement cannot cascade — "%23" contains no "#",
+     * so an escape the caller already wrote is never double-encoded, and the
+     * position of the first "?" is unchanged, so the "\" check above and the
+     * factory's own split still see the same boundary.
+     */
+    private static function preEncodeRawHash(string $path): string
+    {
+        return str_replace('#', '%23', $path);
     }
 
     /**

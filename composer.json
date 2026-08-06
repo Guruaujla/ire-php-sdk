@@ -34,7 +34,7 @@
     },
     "scripts": {
         "test": "phpunit",
-        "analyse": "phpstan analyse",
+        "analyse": "phpstan analyse --memory-limit=512M",
         "lint": "pint --test",
         "format": "pint",
         "fixtures": "php tools/generate-wire-fixtures.php"

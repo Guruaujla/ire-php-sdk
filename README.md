@@ -170,6 +170,32 @@ The runtime hashes an **empty** body for `GET`, `HEAD`, and `DELETE`
 regardless of any payload, and the SDK matches that: for these methods any
 `$body` argument is ignored — the empty body is signed and no body is sent.
 
+### The `$path` argument
+
+`$path` is a **path + query string, never a URL**. It must start with `/`; it
+has no fragment, no scheme and no host.
+
+The SDK derives ONE string from it, writes that back onto the PSR-7 request, and
+then signs it — so the bytes hashed and the bytes on the wire cannot drift:
+
+| input | what happens | why |
+| --- | --- | --- |
+| `\` before the first `?` | **throws** | the runtime's URL parser rewrites it to `/`, so the request would succeed against a *different* resource than you wrote. A `\` inside a query (`?filter=C:\logs`) is fine. |
+| a `.` / `..` segment (any `%2e` spelling) | **throws** | the parser collapses it — the same silent re-targeting. |
+| a raw `#` | encoded to `%23` (path and query) | a `#` acting as a fragment delimiter can only *delete* your data: everything after it, `?tenant_id=…` included, never reaches the server. An already-written `%23` is left as-is. |
+| `%xx` escapes | hex upper-cased (`%7e` → `%7E`) | **this is issue #194.** ext-curl upper-cases path escapes *after* the SDK has signed them, so signing your spelling is a permanent, unrecoverable 401 — on curl only, which is why it can pass in dev and fail in production. |
+
+`%7E` is **not** decoded to `~` and a lone `%` is left for the PSR-7 factory to
+spell — both were measured to travel unchanged on curl *and* the stream handler,
+so normalizing them here would create the very mismatch the belt prevents.
+
+**[`../PATH-CONTRACT.md`](../PATH-CONTRACT.md) has the full measured table**
+across all three SDKs. One caveat specific to PHP: with the default Guzzle stack
+the bytes that reach the server for `%`, `[`, `]`, `|` and a query `\` are
+percent-encoded — but by `guzzlehttp/psr7`'s `Uri`, **not** by this SDK, so a
+different PSR-7 factory may spell them differently. `signed == sent` holds
+either way, because the normalization belt runs *after* the factory.
+
 ### Supported HTTP methods
 
 The method is matched case-insensitively against a closed allowlist — the nine
@@ -228,3 +254,40 @@ composer lint        # pint --test
 composer format      # pint
 composer fixtures    # regenerate wire fixtures (tools/generate-wire-fixtures.php)
 ```
+
+### Why `composer analyse` passes `--memory-limit=512M`
+
+`composer.json` cannot carry a comment, so the measurement lives here.
+
+PHPStan at `level: max` over `src` + `tests` + `tools` needs **more than 128 MB
+on a cold cache**. Measured on this package:
+
+| `memory_limit` | result |
+| --- | --- |
+| `128M` | exit 1, 3/3 runs: `Child process error: PHPStan process crashed because it reached configured PHP memory limit: 128M` |
+| `192M` | exit 0 |
+
+**This only reproduces with a genuinely cold cache** — which is why it looks
+like a phantom if you try to confirm it casually. `phpstan clear-result-cache`
+is *not* enough: it clears the result cache and leaves the rest behind, so the
+next run stays under 128 MB and the crash appears to have been imaginary. Clear
+the whole directory instead:
+
+```bash
+rm -rf "$(php -r 'echo sys_get_temp_dir();')/phpstan"
+```
+
+CI hits exactly that state on every cache miss, so the cold path is the one the
+gate has to survive.
+
+`512M` rather than the measured `192M` floor: the floor is a measurement of
+*today's* file set at *today's* PHPStan version, and both grow. A limit sitting
+a few megabytes above the crash point converts an ordinary "we added a file"
+into a red gate with a misleading error, so the flag buys headroom (~2.6×)
+rather than tracking the floor.
+
+The tradeoff, stated rather than stumbled into: if the runner's CLI ini already
+sets `memory_limit=-1` (unlimited), this flag **lowers** the ceiling to 512 MB.
+That is deliberate — an unbounded analyser on a shared runner degrades into
+swap instead of failing — and 512 MB is still ~2.6× the measured need, but it
+does mean the flag is a cap in that environment, not only a raise.
