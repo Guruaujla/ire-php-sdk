@@ -591,6 +591,264 @@ final class SignerTest extends TestCase
         self::assertSame('key_primary', $result->headers['X-IR-Key-Id']);
     }
 
+    // ---------------------------------------------------------------- header-value guards (#150, #151)
+
+    /**
+     * A 32-char base64url nonce — the exact shape generateNonce() produces, so
+     * the only thing wrong with the hostile variants below is the added
+     * character.
+     */
+    private const CLEAN_NONCE = 'abcdefghijklmnopqrstuvwxyz012345';
+
+    private const WHITESPACE_MESSAGE = 'nonce must not have leading or trailing whitespace (usually a trailing '
+        . 'newline from a file- or env-sourced value) — HTTP header encoding STRIPS '
+        . 'it after the signature is computed, so the runtime would verify a '
+        . 'different string than was signed';
+
+    private const CHARSET_MESSAGE = 'nonce must consist of visible ASCII characters (no spaces, control '
+        . 'characters, or non-ASCII) so it survives HTTP header encoding intact';
+
+    /**
+     * @param array{nonce?: string, timestamp?: string, appId?: string, keyId?: string} $overrides
+     */
+    private static function signWith(array $overrides): SignedRequest
+    {
+        return Signer::signRequest(
+            $overrides['appId'] ?? 'app_erp',
+            $overrides['keyId'] ?? 'key_primary',
+            self::TEST_SECRET,
+            'GET',
+            '/v1/health',
+            '',
+            $overrides['timestamp'] ?? null,
+            $overrides['nonce'] ?? self::CLEAN_NONCE,
+        );
+    }
+
+    /**
+     * @return iterable<string, array{string}>
+     */
+    public static function strippedWhitespaceNonces(): iterable
+    {
+        // Hostile characters are ESCAPE SEQUENCES, never literals: during the
+        // original investigation a literal NUL silently became a space during a
+        // file write, leaving a test that passed while asserting nothing.
+        // POSITION is an explicit dimension — two independent probes both
+        // generalised from single-position samples and both got the rule wrong.
+        $chars = ['SP' => "\x20", 'HT' => "\x09", 'LF' => "\x0a", 'CR' => "\x0d", 'CRLF' => "\x0d\x0a"];
+        foreach ($chars as $name => $char) {
+            yield "leading {$name}" => [$char . self::CLEAN_NONCE];
+            yield "trailing {$name}" => [self::CLEAN_NONCE . $char];
+            yield "both ends {$name}" => [$char . self::CLEAN_NONCE . $char];
+        }
+    }
+
+    #[DataProvider('strippedWhitespaceNonces')]
+    public function testSignRequestRejectsSurroundingHttpWhitespaceInTheNonce(string $nonce): void
+    {
+        // In bounds by length, so ONLY the whitespace guard can reject it.
+        self::assertGreaterThanOrEqual(Signer::NONCE_MIN_LEN, strlen($nonce));
+        self::assertLessThanOrEqual(Signer::NONCE_MAX_LEN, strlen($nonce));
+
+        $this->expectException(InvalidNonceException::class);
+        $this->expectExceptionMessage(self::WHITESPACE_MESSAGE);
+        self::signWith(['nonce' => $nonce]);
+    }
+
+    public function testVerticalTabAndFormFeedGetTheCharsetMessageNotTheWhitespaceOne(): void
+    {
+        // This is the assertion that says WHICH predicate ran. VT and FF are in
+        // the SDK's six-character ASCII_WHITESPACE set but are NOT HTTP
+        // whitespace: measured, a leading or trailing VT/FF round-trips through
+        // a Headers API VERBATIM. Reusing ASCII_WHITESPACE here would still
+        // reject them — with a message claiming they get stripped, which is
+        // false. Both messages reject, so only this discrimination catches it.
+        foreach (["\x0b", "\x0c"] as $char) {
+            foreach ([self::CLEAN_NONCE . $char, $char . self::CLEAN_NONCE] as $nonce) {
+                try {
+                    self::signWith(['nonce' => $nonce]);
+                    self::fail('expected InvalidNonceException');
+                } catch (InvalidNonceException $e) {
+                    self::assertSame(self::CHARSET_MESSAGE, $e->getMessage());
+                }
+            }
+        }
+    }
+
+    public function testWhitespaceGuardIsEdgesOnly(): void
+    {
+        // Negative control: a guard that rejected the character ANYWHERE would
+        // pass every case above while breaking working callers.
+        $result = self::signWith(['nonce' => 'abcdefghij-klmnopqrstuvwxyz']);
+        self::assertSame('abcdefghij-klmnopqrstuvwxyz', $result->nonce);
+    }
+
+    /**
+     * @return iterable<string, array{string}>
+     */
+    public static function nonVisibleAsciiNonces(): iterable
+    {
+        yield 'embedded space' => ['abcdefghijkl mnopqrstuvwxyz'];
+        yield 'embedded NUL' => ["abcdefghijkl\x00mnopqrstuvwxyz"];
+        yield 'leading NUL' => ["\x00" . self::CLEAN_NONCE];
+        yield 'BEL' => [self::CLEAN_NONCE . "\x07"];
+        yield 'DEL' => [self::CLEAN_NONCE . "\x7f"];
+        yield 'latin-1 U+00E9' => [self::CLEAN_NONCE . "\u{00e9}"];
+        yield 'astral U+1F600' => [self::CLEAN_NONCE . "\u{1f600}"];
+        yield 'embedded CR' => ["abcdefghijkl\x0dmnopqrstuvwxyz"];
+        yield 'embedded LF' => ["abcdefghijkl\x0amnopqrstuvwxyz"];
+    }
+
+    #[DataProvider('nonVisibleAsciiNonces')]
+    public function testSignRequestRejectsNonVisibleAsciiNonces(string $nonce): void
+    {
+        $this->expectException(InvalidNonceException::class);
+        $this->expectExceptionMessage(self::CHARSET_MESSAGE);
+        self::signWith(['nonce' => $nonce]);
+    }
+
+    public function testNonceBoundIsMeasuredInUtf16CodeUnitsNotBytes(): void
+    {
+        // Issue #151. Eleven U+4E2D characters are 33 BYTES but only 11 UTF-16
+        // code units, and the runtime measures `nonce.length` in JS — UTF-16
+        // units. `strlen` counted bytes, so this SDK SIGNED a nonce that
+        // TypeScript, Python AND the runtime all reject.
+        $nonce = str_repeat("\u{4e2d}", 11);
+        self::assertSame(33, strlen($nonce), 'precondition: 33 bytes, which strlen would accept');
+
+        try {
+            self::signWith(['nonce' => $nonce]);
+            self::fail('expected InvalidNonceException');
+        } catch (InvalidNonceException $e) {
+            self::assertSame(
+                "nonce length 11 is outside the runtime's [22, 64] bound",
+                $e->getMessage(),
+            );
+        }
+    }
+
+    public function testAstralCharactersCountAsTwoUtf16Units(): void
+    {
+        // Twelve U+1F600 are 48 bytes, 12 code points, and 24 UTF-16 units. In
+        // UTF-16 that CLEARS the length gate and dies on CHARSET instead — that
+        // difference in WHICH error is what pins the unit. A byte count (48) or
+        // a code-point count (12) would produce the length message.
+        $nonce = str_repeat("\u{1f600}", 12);
+        self::assertSame(48, strlen($nonce), 'precondition: 48 bytes');
+
+        try {
+            self::signWith(['nonce' => $nonce]);
+            self::fail('expected InvalidNonceException');
+        } catch (InvalidNonceException $e) {
+            self::assertSame(self::CHARSET_MESSAGE, $e->getMessage());
+        }
+    }
+
+    public function testCheckOrderIsPinnedNotJustTheSetOfChecks(): void
+    {
+        // Every input below fails MORE THAN ONE guard, so asserting only "it
+        // throws" could not tell which branch ran. The message is the only
+        // thing that can.
+        $cases = [
+            // whitespace beats length: 64 chars + a newline is 65 units.
+            [str_repeat('a', Signer::NONCE_MAX_LEN) . "\x0a", self::WHITESPACE_MESSAGE],
+            // whitespace beats charset.
+            ["abcdefghij\x00klmnopqrstuvwxyz\x20", self::WHITESPACE_MESSAGE],
+            // length beats charset.
+            [str_repeat("\u{4e2d}", 3), "nonce length 3 is outside the runtime's [22, 64] bound"],
+        ];
+        foreach ($cases as [$nonce, $expected]) {
+            try {
+                self::signWith(['nonce' => $nonce]);
+                self::fail('expected InvalidNonceException');
+            } catch (InvalidNonceException $e) {
+                self::assertSame($expected, $e->getMessage());
+            }
+        }
+    }
+
+    public function testNonceGuardBeatsTimestampGuard(): void
+    {
+        $this->expectException(InvalidNonceException::class);
+        self::signWith(['nonce' => self::CLEAN_NONCE . "\x0a", 'timestamp' => 'nope']);
+    }
+
+    public function testTimestampGuardBeatsAppIdGuard(): void
+    {
+        $this->expectException(\InvalidArgumentException::class);
+        $this->expectExceptionMessage('timestamp must be 1-15 digits');
+        self::signWith(['timestamp' => 'nope', 'appId' => "app\x0a"]);
+    }
+
+    /**
+     * @return iterable<string, array{string}>
+     */
+    public static function nonCanonicalTimestamps(): iterable
+    {
+        yield 'not digits' => ['17000000oo'];
+        yield 'empty' => [''];
+        yield 'negative' => ['-1'];
+        yield 'fractional' => ['1.5'];
+        yield 'leading space' => ["\x201700000000"];
+        yield 'trailing newline' => ["1700000000\x0a"];
+        yield '16 digits' => [str_repeat('1', 16)];
+        // Python's `\d` over a str matches every Unicode decimal digit unless
+        // re.ASCII is set; the verifier's JS `\d` is [0-9]. All three SDKs must
+        // reject this.
+        yield 'arabic-indic digits' => ["\u{0661}\u{0667}" . str_repeat("\u{0660}", 8)];
+    }
+
+    #[DataProvider('nonCanonicalTimestamps')]
+    public function testSignRequestRejectsNonCanonicalTimestamps(string $timestamp): void
+    {
+        $this->expectException(\InvalidArgumentException::class);
+        $this->expectExceptionMessage('timestamp must be 1-15 digits (unix seconds)');
+        self::signWith(['timestamp' => $timestamp]);
+    }
+
+    public function testSignRequestAcceptsOneToFifteenAsciiDigits(): void
+    {
+        self::assertSame('1', self::signWith(['timestamp' => '1'])->timestamp);
+        self::assertSame(str_repeat('1', 15), self::signWith(['timestamp' => str_repeat('1', 15)])->timestamp);
+    }
+
+    /**
+     * @return iterable<string, array{string, string}>
+     */
+    public static function headerUnsafeIds(): iterable
+    {
+        $values = [
+            'leading space' => "\x20app_erp",
+            'trailing newline' => "app_erp\x0a",
+            'trailing tab' => "app_erp\x09",
+            'embedded CRLF' => "app_erp\x0d\x0aX-Evil: 1",
+            'non-ASCII' => "app_erp\u{00e9}",
+        ];
+        foreach ($values as $name => $value) {
+            yield "app_id {$name}" => ['appId', $value];
+            yield "key_id {$name}" => ['keyId', $value];
+        }
+    }
+
+    #[DataProvider('headerUnsafeIds')]
+    public function testSignRequestRejectsHeaderUnsafeIds(string $field, string $value): void
+    {
+        // These are NOT part of the canonical payload, so a rewritten value
+        // cannot break the signature — it changes which KEY the runtime looks
+        // up, which is the same undiagnosable 401 by another route.
+        $label = $field === 'appId' ? 'app_id' : 'key_id';
+        $this->expectException(\InvalidArgumentException::class);
+        $this->expectExceptionMessage($label . ' must consist of visible ASCII characters');
+        self::signWith([$field => $value]);
+    }
+
+    public function testSignRequestAcceptsTheIdsTheConsoleMints(): void
+    {
+        $result = self::signWith(['appId' => 'app_erp', 'keyId' => 'key_primary']);
+        self::assertSame('app_erp', $result->headers['X-IR-App-Id']);
+        self::assertSame('key_primary', $result->headers['X-IR-Key-Id']);
+    }
+
     // ---------------------------------------------------------------- hardening pins
 
     public function testSecretParametersCarrySensitiveParameterAttribute(): void

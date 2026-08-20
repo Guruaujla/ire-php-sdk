@@ -5,6 +5,7 @@ declare(strict_types=1);
 namespace Ezee\IntegrationRuntime\Tests;
 
 use Ezee\IntegrationRuntime\Client;
+use Ezee\IntegrationRuntime\Exception\InvalidMethodException;
 use Ezee\IntegrationRuntime\RetryPolicy;
 use Ezee\IntegrationRuntime\Signer;
 use GuzzleHttp\Psr7\HttpFactory;
@@ -983,5 +984,71 @@ final class ClientTest extends TestCase
             $first->getHeaderLine('X-IR-Nonce'),
             $second->getHeaderLine('X-IR-Nonce'),
         );
+    }
+
+    // ------------------------------------------- response enum tolerance (#178)
+
+    /**
+     * A response body poisoning all four public response enums with members no
+     * version of this SDK has ever seen.
+     */
+    private const POISONED_BODY = '{"job":{"id":"job_1","status":"quantum_superposition"},'
+        . '"steps":[{"id":"step_1","status":"warp_drive_engaged","mapping_source":"telepathy"}],'
+        . '"warnings":[{"code":"mapping.invented_by_the_server","message":"hello from the future"}]}';
+
+    public function testUnknownResponseEnumMembersRoundTripUntouched(): void
+    {
+        // #132 declares all eight public enums extensible and tells consumers
+        // they must tolerate unknown members. That declaration is decorative if
+        // our own SDK throws at the boundary. Today it cannot: this SDK does not
+        // decode a single byte of a response body — every response touch is
+        // getStatusCode(), the Retry-After header, and the body stream. That is
+        // an accident of ABSENCE, not a designed guarantee: ADR-012 §12 calls
+        // for typed per-endpoint responses, which would close it without anyone
+        // noticing the contract implication. This test must FAIL if a validator
+        // is inserted.
+        $http = new MockHttpClient(new Response(200, ['Content-Type' => 'application/json'], self::POISONED_BODY));
+        $factory = new HttpFactory();
+        $client = new Client($http, $factory, $factory, 'https://ir.example.com', self::APP_ID, self::KEY_ID, self::SECRET);
+
+        $response = $client->send('GET', '/v1/sync-jobs/job_1');
+
+        self::assertSame(200, $response->getStatusCode());
+        // Byte-for-byte, not a shape check: a validator that STRIPPED the
+        // unknown members rather than throwing would pass a "no exception"
+        // assertion.
+        self::assertSame(self::POISONED_BODY, (string) $response->getBody());
+        // And the members really are unknown — decoded HERE, by the test, never
+        // by the SDK.
+        $decoded = json_decode(self::POISONED_BODY, true);
+        self::assertSame('quantum_superposition', $decoded['job']['status']);
+        self::assertSame('warp_drive_engaged', $decoded['steps'][0]['status']);
+        self::assertSame('telepathy', $decoded['steps'][0]['mapping_source']);
+        self::assertSame('mapping.invented_by_the_server', $decoded['warnings'][0]['code']);
+    }
+
+    public function testClientReturnsTheTransportResponseObjectItself(): void
+    {
+        // Nothing is wrapped, re-serialized, or validated on the way out.
+        $psrResponse = new Response(200, [], self::POISONED_BODY);
+        $http = new MockHttpClient($psrResponse);
+        $factory = new HttpFactory();
+        $client = new Client($http, $factory, $factory, 'https://ir.example.com', self::APP_ID, self::KEY_ID, self::SECRET);
+
+        self::assertSame($psrResponse, $client->send('GET', '/v1/sync-jobs/job_1'));
+    }
+
+    public function testNegativeControlTheSdkStillThrowsWhereItShould(): void
+    {
+        // Paired with the tolerance tests on purpose. If a future edit made this
+        // harness swallow exceptions, every "no exception escaped" assertion
+        // above would pass while proving nothing. The method allowlist is the
+        // nearest known-throwing path.
+        $http = new MockHttpClient(new Response(200, [], self::POISONED_BODY));
+        $factory = new HttpFactory();
+        $client = new Client($http, $factory, $factory, 'https://ir.example.com', self::APP_ID, self::KEY_ID, self::SECRET);
+
+        $this->expectException(InvalidMethodException::class);
+        $client->send('BREW', '/v1/sync-jobs');
     }
 }

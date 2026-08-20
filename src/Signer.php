@@ -106,8 +106,87 @@ final class Signer
      */
     private const ASCII_WHITESPACE = " \t\n\v\f\r";
 
+    /**
+     * Leading/trailing "HTTP whitespace" — SP, HT, LF, CR (issue #150).
+     *
+     * A nonce IS part of the canonical payload, and it travels as an HTTP
+     * header value. A header value is not the string you handed the headers
+     * API; it is what that API stores after NORMALISING it. WHATWG `Headers`
+     * (and any spec-conforming client) strips these four characters from both
+     * ends — so a nonce with a trailing newline is signed WITH it and sent
+     * WITHOUT it, and the verifier hashes a different string than was signed.
+     * Result: a guaranteed 401 with nothing in any log naming the cause. The
+     * realistic shape is a nonce read out of a file or an env var.
+     *
+     * Deliberately NARROWER than {@see ASCII_WHITESPACE}, which also carries VT
+     * and FF: those two are NOT stripped (measured on Node 26 — a leading or
+     * trailing VT/FF round-trips verbatim), so folding them in here would make
+     * this guard's message, which tells the caller their character is stripped
+     * after signing, a lie about them. They are rejected by the visible-ASCII
+     * guard instead, with the message that fits. Do not "simplify" this by
+     * reusing ASCII_WHITESPACE.
+     */
+    private const HTTP_WHITESPACE_EDGES_RE = '/\A[ \t\n\r]|[ \t\n\r]\z/';
+
+    /**
+     * Visible ASCII, U+0021..U+007E. Anything outside it either cannot survive
+     * header encoding intact or is not a value a header should carry.
+     *
+     * Byte-oriented on purpose (no `/u`): a UTF-8 multibyte sequence has bytes
+     * >= 0x80, so it fails here exactly as the TypeScript and Python SDKs'
+     * equivalents fail on the code-unit / code-point reading.
+     */
+    private const VISIBLE_ASCII_RE = '/\A[\x21-\x7e]+\z/';
+
+    /**
+     * The runtime parses X-IR-Timestamp with exactly this regex before it even
+     * reaches the clock-window check (src/middleware/service-auth.ts step 1).
+     * Matching it here turns a non-canonical timestamp into a local error
+     * instead of a uniform, reason-free 401.
+     *
+     * No `/u` and no `(*UCP)`, so `\d` is ASCII `[0-9]` — the same set JS `\d`
+     * matches in the verifier's own regex.
+     */
+    private const TIMESTAMP_RE = '/\A\d{1,15}\z/';
+
     /** Static-only class. */
     private function __construct() {}
+
+    /**
+     * Length of $value in UTF-16 code units — the unit the RUNTIME measures the
+     * nonce bound in (`nonce.length` in src/middleware/service-auth.ts, which
+     * is a JS string length).
+     *
+     * This SDK previously used `strlen`, i.e. BYTES, and over-accepted: a nonce
+     * of eleven U+4E2D characters is 33 bytes but only 11 UTF-16 units, so PHP
+     * signed a nonce that TypeScript, Python AND the runtime all reject (issue
+     * #151). Python's `len` counts CODE POINTS and over-rejected in the other
+     * direction. Both were corrected TO this unit, not the reverse: the runtime
+     * is the authority, and that direction is the detail most likely to be
+     * implemented backwards from a summary line.
+     *
+     * Implemented over UTF-8 bytes rather than via mbstring/iconv so it needs
+     * no extension (this package requires none): every non-continuation byte
+     * starts one code point, and a 4-byte sequence (lead byte >= 0xF0, i.e. a
+     * code point above U+FFFF) becomes a UTF-16 SURROGATE PAIR — two units.
+     * Total by construction: an invalid byte counts as one unit rather than
+     * throwing, which keeps the following visible-ASCII guard the thing that
+     * rejects it.
+     */
+    private static function utf16Length(string $value): int
+    {
+        $units = 0;
+        $length = strlen($value);
+        for ($i = 0; $i < $length; $i++) {
+            $byte = ord($value[$i]);
+            if (($byte & 0xC0) === 0x80) {
+                continue; // UTF-8 continuation byte — part of the code point already counted.
+            }
+            $units += $byte >= 0xF0 ? 2 : 1;
+        }
+
+        return $units;
+    }
 
     /**
      * Canonicalize an HTTP method to the exact constant that goes into the
@@ -292,9 +371,10 @@ final class Signer
      * @param string|null $timestamp     override the unix-seconds timestamp string (defaults to now)
      * @param string|null $nonce         override the nonce (defaults to a fresh random base64url nonce)
      *
-     * @throws InvalidNonceException  when a supplied nonce is outside [22, 64]
-     * @throws InvalidMethodException when $method is not in {@see HTTP_METHODS}
-     * @throws InvalidSecretException when the secret is not valid base64url
+     * @throws InvalidNonceException     when the nonce carries surrounding HTTP whitespace, is outside [22, 64], or is not visible ASCII
+     * @throws InvalidMethodException    when $method is not in {@see HTTP_METHODS}
+     * @throws InvalidSecretException    when the secret is not valid base64url
+     * @throws \InvalidArgumentException when $timestamp is not 1-15 digits, or $appId/$keyId are not visible ASCII
      */
     public static function signRequest(
         string $appId,
@@ -309,7 +389,24 @@ final class Signer
     ): SignedRequest {
         $timestamp ??= self::currentTimestamp();
         $nonce ??= self::generateNonce();
-        $nonceLen = strlen($nonce);
+
+        // CHECK ORDER IS LOAD-BEARING, and it is the same order in all three
+        // SDKs. Surrounding whitespace comes FIRST because it is the only
+        // failure here whose character is INVISIBLE: reporting a nonce read out
+        // of a file as "length 65 is outside [22, 64]" sends an operator
+        // counting characters they can see 64 of. Same reasoning as
+        // {@see decodeSecret}, which names a trailing newline separately from a
+        // charset problem for exactly this reason. Length comes before charset
+        // so a plainly-too-short nonce is reported as such.
+        if (preg_match(self::HTTP_WHITESPACE_EDGES_RE, $nonce) === 1) {
+            throw new InvalidNonceException(
+                'nonce must not have leading or trailing whitespace (usually a trailing '
+                . 'newline from a file- or env-sourced value) — HTTP header encoding STRIPS '
+                . 'it after the signature is computed, so the runtime would verify a '
+                . 'different string than was signed',
+            );
+        }
+        $nonceLen = self::utf16Length($nonce);
         if ($nonceLen < self::NONCE_MIN_LEN || $nonceLen > self::NONCE_MAX_LEN) {
             throw new InvalidNonceException(sprintf(
                 "nonce length %d is outside the runtime's [%d, %d] bound",
@@ -317,6 +414,38 @@ final class Signer
                 self::NONCE_MIN_LEN,
                 self::NONCE_MAX_LEN,
             ));
+        }
+        if (preg_match(self::VISIBLE_ASCII_RE, $nonce) !== 1) {
+            // Also keeps the bound checked above measured in a unit the other
+            // two SDKs can reproduce: once the nonce is ASCII, byte length,
+            // code-point count and UTF-16 length all coincide (issue #151).
+            throw new InvalidNonceException(
+                'nonce must consist of visible ASCII characters (no spaces, control '
+                . 'characters, or non-ASCII) so it survives HTTP header encoding intact',
+            );
+        }
+        if (preg_match(self::TIMESTAMP_RE, $timestamp) !== 1) {
+            throw new \InvalidArgumentException(sprintf(
+                'timestamp must be 1-15 digits (unix seconds), got "%s" — the runtime '
+                . 'rejects any other spelling before it checks the clock window',
+                $timestamp,
+            ));
+        }
+        // app_id / key_id are NOT part of the canonical payload, so a rewritten
+        // value cannot break the signature — but it does change which key the
+        // runtime looks up, and a value the headers API rewrites (or refuses)
+        // is a 401 nobody can read. Labelled with the WIRE field names, not the
+        // PHP parameter names: the message text is identical in all three SDKs
+        // and that parity is measured.
+        foreach (['app_id' => $appId, 'key_id' => $keyId] as $label => $value) {
+            if (preg_match(self::VISIBLE_ASCII_RE, $value) !== 1) {
+                throw new \InvalidArgumentException(sprintf(
+                    '%s must consist of visible ASCII characters so it survives HTTP '
+                    . 'header encoding intact (got "%s")',
+                    $label,
+                    $value,
+                ));
+            }
         }
 
         $canonicalPayload = self::computeCanonicalPayload(

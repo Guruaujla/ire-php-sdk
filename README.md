@@ -66,6 +66,41 @@ exactly once), a pre-encoded string (sent **verbatim**, never re-encoded), or
 `null`. `Content-Type: application/json` is set by default unless you supply
 your own in `$headers`.
 
+### Responses are returned unparsed
+
+The SDK hands you the transport's response object untouched — it never decodes a
+byte of the body. That is deliberate: the runtime's public enums are declared
+**extensible** (`docs/API-STABILITY.md` §4.2), so any of them may gain a member
+in a minor release, and a validating client would start throwing on a response
+the server considers valid.
+
+The obligation therefore transfers to you: **parse tolerantly.** Treat an
+unrecognised `status`, `mapping_source` or warning `code` as an unknown value to
+pass through or ignore, never as an error. Do not exhaustively `switch` on a
+member set without a default branch.
+
+### Values the SDK refuses to sign
+
+These are rejected LOCALLY, at the call site, with an error naming the actual
+problem — because the verifier answers a uniform 401 for every one of them and
+can never tell you which:
+
+| value | requirement |
+| --- | --- |
+| nonce | no leading or trailing space, tab, CR or LF; visible ASCII; 22–64 UTF-16 code units |
+| timestamp | 1–15 ASCII digits (unix seconds) |
+| app id / key id | visible ASCII |
+
+The nonce whitespace rule is the one that bites in practice. A nonce is part of
+the signed payload AND travels as an HTTP header value, and header encoding
+**strips** surrounding whitespace *after* the signature is computed — so a nonce
+read out of a file or an env var (`$(cat nonce.txt)`, a `.env` line, a mounted
+secret) is signed with its trailing newline and sent without it. Every such
+request 401s, permanently, with nothing in any log naming the cause.
+
+You only hit these if you supply your own nonce or timestamp; the generated ones
+are always valid.
+
 ### Retrying 429s
 
 `send()` retries a `429` for you, and **re-signs every attempt**. That is not an
