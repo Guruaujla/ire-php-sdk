@@ -41,7 +41,7 @@ $client = new Client(
     new \GuzzleHttp\Client(),
     new \GuzzleHttp\Psr7\HttpFactory(),   // PSR-17 request factory
     new \GuzzleHttp\Psr7\HttpFactory(),   // PSR-17 stream factory
-    'https://integration-runtime.example.com',
+    'https://staging.integrationengine.ca',
     'app_erp',                            // X-IR-App-Id
     'key_primary',                        // X-IR-Key-Id
     // The base64url secret shown ONCE when the key was created (see Security).
@@ -50,9 +50,32 @@ $client = new Client(
 
 // Sign + send. The five X-IR-* headers are added automatically.
 $response = $client->send('POST', '/v1/operations/execute', [
-    'operation' => 'quickbooks.customer.upsert',
-    'tenant_id' => 't_123',
-    'input' => [],
+    'tenant_id' => 'tenant_runtime_123',
+    'provider_key' => 'quickbooks',
+    'connection_id' => 'conn_quickbooks_123',
+    'recipe_key' => 'erp.quickbooks.invoice.created',
+    'recipe_version' => 2,
+    'trigger_type' => 'erp.invoice.created',
+    'object_type' => 'invoice',
+    'internal_object_id' => 'erp_invoice_00042',
+    'idempotency_key' => 'erp_invoice_00042:quickbooks:create:v2',
+    'payload' => [
+        'invoice' => [
+            'CustomerRef' => ['value' => '123'],
+            'GlobalTaxCalculation' => 'TaxExcluded',
+            'Line' => [[
+                'Amount' => 100,
+                'DetailType' => 'SalesItemLineDetail',
+                'SalesItemLineDetail' => [
+                    'ItemRef' => ['value' => '456'],
+                    'TaxCodeRef' => ['value' => 'TAX'],
+                    'Qty' => 1,
+                    'UnitPrice' => 100,
+                ],
+            ]],
+        ],
+        'tax_declarations' => [['line_index' => 0, 'treatment' => 'taxable']],
+    ],
 ]);
 
 if ($response->getStatusCode() === 401) {
@@ -137,7 +160,7 @@ use Ezee\IntegrationRuntime\RetryPolicy;
 
 $client = new Client(
     $httpClient, $requestFactory, $streamFactory,
-    'https://integration-runtime.example.com',
+    'https://staging.integrationengine.ca',
     'app_erp', 'key_primary', $secret,
     // Defaults shown; pass null (or omit) to get exactly this.
     new RetryPolicy(maxAttempts: 3, baseDelaySeconds: 1.0, maxDelaySeconds: 60.0, jitterFraction: 0.25),
@@ -186,10 +209,10 @@ If you drive your own PSR-18 client, build the fully signed PSR-7 request
 without sending it:
 
 ```php
-$request = $client->createSignedRequest('POST', '/v1/operations/execute', [
-    'operation' => 'quickbooks.customer.upsert',
-    'tenant_id' => 't_123',
-]);
+$request = $client->createSignedRequest(
+    'GET',
+    '/v1/sync-jobs?tenant_id=tenant_runtime_123',
+);
 // $request carries X-IR-App-Id, X-IR-Key-Id, X-IR-Timestamp, X-IR-Nonce,
 // X-IR-Signature — plus the body stream.
 $response = $myPsr18Client->sendRequest($request);
