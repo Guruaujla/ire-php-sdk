@@ -32,6 +32,12 @@ actually run.)
 
 ## Usage
 
+For Invoice creates, derive `idempotency_key` from the stable business event and
+operation—not `recipe_version`. Once a key has been issued, preserve it exactly,
+including a historical `:v1`, `:v2`, or `:v3` suffix. Never move a queued or
+historical v1/v2 attempt to v3 by changing its key, payload, or recipe version;
+an ambiguous attempt requires operator reconciliation.
+
 With Guzzle (which implements PSR-18 and PSR-17):
 
 ```php
@@ -54,11 +60,11 @@ $response = $client->send('POST', '/v1/operations/execute', [
     'provider_key' => 'quickbooks',
     'connection_id' => 'conn_quickbooks_123',
     'recipe_key' => 'erp.quickbooks.invoice.created',
-    'recipe_version' => 2,
+    'recipe_version' => 3,
     'trigger_type' => 'erp.invoice.created',
     'object_type' => 'invoice',
     'internal_object_id' => 'erp_invoice_00042',
-    'idempotency_key' => 'erp_invoice_00042:quickbooks:create:v2',
+    'idempotency_key' => 'erp_invoice_00042:quickbooks:create',
     'payload' => [
         'invoice' => [
             'CustomerRef' => ['value' => '123'],
