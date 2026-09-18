@@ -17,18 +17,83 @@ client (Guzzle, Symfony HttpClient's PSR-18 adapter, ...).
 
 ## Install
 
-This is a standalone Composer package at `sdks/php` (not part of a repo-wide
-workspace).
+This package is **not published to Packagist**. Today, the supported consumption
+path is an approved local checkout of this private repository plus a Composer
+[`path`](https://getcomposer.org/doc/05-repositories.md#path) repository. Do not
+point a Composer `vcs` repository at the monorepo root: this package's
+`composer.json` is in `sdks/php`, not at that root.
 
-```bash
-cd sdks/php
-composer install
+In the consuming PHP application's `composer.json`, add:
+
+```json
+{
+    "repositories": [
+        {
+            "type": "path",
+            "url": "../Integration-Runtime-Engine/sdks/php",
+            "options": {
+                "symlink": false,
+                "versions": {
+                    "ezee/integration-runtime-sdk": "dev-local"
+                }
+            }
+        }
+    ]
+}
 ```
 
-Requires **PHP >= 8.2**. (Floor chosen for `readonly` classes
-(`SignedRequest`) + `#[\SensitiveParameter]` — both 8.2 features; 8.1 is
-EOL. Still to be confirmed against the PHP versions the product backends
-actually run.)
+The path is relative to the consuming application's `composer.json`; use the
+actual approved checkout location. `dev-local` is only a version label for that
+checkout, not a published release. `symlink: false` makes Composer mirror the
+package into the consumer's `vendor/` directory, so the installed copy cannot
+silently depend on `sdks/php/vendor` or another monorepo autoloader.
+
+The checkout itself is part of the dependency pin. Use a dedicated, clean
+checkout at an explicitly approved full commit SHA, record that SHA in the
+consumer's build/deployment configuration, and verify it before Composer runs.
+A path repository's `dist.reference` in `composer.lock` identifies what was
+resolved; it does **not** snapshot the files at `url`. If that directory moves to
+a different commit, a later `composer install` can mirror different SDK bytes
+under the old lock entry.
+
+Add and lock the dependencies from the consuming application. `composer require`
+works whether or not the application already has a lockfile:
+
+```bash
+composer require \
+  'ezee/integration-runtime-sdk:dev-local' \
+  'guzzlehttp/guzzle:^7.15'
+```
+
+Commit the resulting consumer `composer.json` and `composer.lock`. Subsequent
+builds use `composer install`, but only after checking out the recorded SDK
+commit cleanly at the configured path.
+
+The SDK requires the PSR-18, PSR-17, and PSR-7 interfaces but deliberately does
+not choose their implementations. The explicit Guzzle dependency above supplies
+the PSR-18 client and PSR-17/PSR-7 factory used in the example below. If your
+application already supplies different compliant implementations, require those
+instead.
+
+The SDK declares **PHP >= 8.2**. CI installs it from a separate clean project on
+PHP 8.2 with the lowest allowed dependency versions, then verifies autoloading
+and a synthetic signed request over a mocked transport. The SDK's own
+`composer.lock` makes its development and CI toolchain reproducible; Composer
+does not apply that lockfile or the SDK's `require-dev` packages to consumers.
+The consuming application's lockfile is authoritative for registry packages;
+the separately recorded, clean SDK checkout commit is authoritative for this
+path package.
+
+PHP 8.2 is the declared and tested floor, not a claim about the ERP application's
+current runtime. Confirm the consuming application's PHP version separately;
+do not silently lower or raise this package requirement to match an unverified
+environment.
+
+Provide `IR_SERVICE_KEY_SECRET` to the backend process through its secret
+manager or deployment environment. Never commit a real secret in
+`composer.json`, source, an example `.env`, or a shell script. The clean-consumer
+CI smoke uses a public synthetic test key and a mocked PSR-18 transport; it makes
+no runtime or provider request.
 
 ## Usage
 
