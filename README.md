@@ -97,6 +97,12 @@ no runtime or provider request.
 
 ## Usage
 
+For a full, credential-free connect-session → OAuth handoff → native QuickBooks
+Invoice CREATE → job-polling walkthrough, see the
+[`examples/quickbooks-invoice`](examples/quickbooks-invoice/) example. It runs
+against an in-process mock transport by default and performs no network or
+provider write.
+
 For Invoice creates, derive `idempotency_key` from the stable business event and
 operation—not `recipe_version`. Once a key has been issued, preserve it exactly,
 including a historical `:v1`, `:v2`, or `:v3` suffix. Never move a queued or

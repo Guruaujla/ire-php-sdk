@@ -1,5 +1,7 @@
 parameters:
     level: max
+    scanDirectories:
+        - examples/quickbooks-invoice
     paths:
         - src
         - tests
