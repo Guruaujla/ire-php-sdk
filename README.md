@@ -103,6 +103,12 @@ Invoice CREATE → job-polling walkthrough, see the
 against an in-process mock transport by default and performs no network or
 provider write.
 
+For tenant-scoped connection discovery and authoritative status reconciliation,
+including `connected`, `reconnect_required`, and `disconnected`, see the
+[`examples/connection-status`](examples/connection-status/) example. Its local
+fixture demonstrates why a product backend must verify a browser callback hint
+with `GET /v1/connections/{id}` before changing product behavior.
+
 For Invoice creates, derive `idempotency_key` from the stable business event and
 operation—not `recipe_version`. Once a key has been issued, preserve it exactly,
 including a historical `:v1`, `:v2`, or `:v3` suffix. Never move a queued or
