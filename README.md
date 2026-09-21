@@ -103,6 +103,11 @@ Invoice CREATE → job-polling walkthrough, see the
 against an in-process mock transport by default and performs no network or
 provider write.
 
+For the provider-agnostic bounded result returned by job polling, see
+[`examples/job-result`](examples/job-result/). It demonstrates tolerant
+`none`/`available` handling with an in-process mock and leaves the generic
+signed transport unchanged.
+
 For tenant-scoped connection discovery and authoritative status reconciliation,
 including `connected`, `reconnect_required`, and `disconnected`, see the
 [`examples/connection-status`](examples/connection-status/) example. Its local

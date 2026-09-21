@@ -2,6 +2,7 @@ parameters:
     level: max
     scanDirectories:
         - examples/quickbooks-invoice
+        - examples/job-result
         - examples/connection-status
     paths:
         - src
