@@ -114,6 +114,17 @@ including `connected`, `reconnect_required`, and `disconnected`, see the
 fixture demonstrates why a product backend must verify a browser callback hint
 with `GET /v1/connections/{id}` before changing product behavior.
 
+For the **offline-only Google Calendar contract fixture**, see
+[`examples/google-calendar`](examples/google-calendar/). It begins with an
+already-authorized synthetic grant and exercises authoritative grant reads,
+paginated discovery, explicit resource selection, and bounded event-page reads
+without a network or provider request. The public connect-session route accepts
+only QuickBooks, so this fixture does not claim to provision Calendar consent.
+A local synthetic Worker test accepts the Calendar read shapes and the public
+OpenAPI describes them, but neither fact is deployed or live acceptance. Do
+not target the fixture at a runtime: Calendar remains inactive until release
+and an authorized consent flow has completed and been reconciled.
+
 For Invoice creates, derive `idempotency_key` from the stable business event and
 operation—not `recipe_version`. Once a key has been issued, preserve it exactly,
 including a historical `:v1`, `:v2`, or `:v3` suffix. Never move a queued or

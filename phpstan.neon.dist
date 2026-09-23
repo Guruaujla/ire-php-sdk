@@ -4,6 +4,7 @@ parameters:
         - examples/quickbooks-invoice
         - examples/job-result
         - examples/connection-status
+        - examples/google-calendar
     paths:
         - src
         - tests
