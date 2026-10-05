@@ -128,8 +128,13 @@ and an authorized consent flow has completed and been reconciled.
 For Invoice creates, derive `idempotency_key` from the stable business event and
 operation—not `recipe_version`. Once a key has been issued, preserve it exactly,
 including a historical `:v1`, `:v2`, or `:v3` suffix. Never move a queued or
-historical v1/v2 attempt to v3 by changing its key, payload, or recipe version;
+historical v1/v2 attempt or existing v3 job to v4 by changing its key, payload, or recipe version;
 an ambiguous attempt requires operator reconciliation.
+
+Fresh Invoice submissions require v4 with CAD currency evidence in
+`invoice_verification`. The IDs and 13% tax calculation below are fictional;
+replace them with references and approved totals from the selected company.
+A valid example does not establish tax applicability or authorize a live write.
 
 With Guzzle (which implements PSR-18 and PSR-17):
 
@@ -153,7 +158,7 @@ $response = $client->send('POST', '/v1/operations/execute', [
     'provider_key' => 'quickbooks',
     'connection_id' => 'conn_quickbooks_123',
     'recipe_key' => 'erp.quickbooks.invoice.created',
-    'recipe_version' => 3,
+    'recipe_version' => 4,
     'trigger_type' => 'erp.invoice.created',
     'object_type' => 'invoice',
     'internal_object_id' => 'erp_invoice_00042',
@@ -174,6 +179,18 @@ $response = $client->send('POST', '/v1/operations/execute', [
             ]],
         ],
         'tax_declarations' => [['line_index' => 0, 'treatment' => 'taxable']],
+        'invoice_verification' => [
+            'currency' => 'CAD',
+            'net_amount' => '100.00',
+            'total_tax' => '13.00',
+            'total_amount' => '113.00',
+            'tax_lines' => [[
+                'tax_rate_ref' => '789',
+                'tax_percent' => '13',
+                'net_amount_taxable' => '100.00',
+                'amount' => '13.00',
+            ]],
+        ],
     ],
 ]);
 
