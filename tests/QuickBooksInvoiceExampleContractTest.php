@@ -104,8 +104,9 @@ final class QuickBooksInvoiceExampleContractTest extends TestCase
         self::assertStringContainsString('$ref: "#/components/schemas/OperationsExecuteRequest"', $execute);
         self::assertStringContainsString('"202":', $execute);
         self::assertStringContainsString('"409":', $execute);
-        self::assertStringContainsString('recipe v3', $execute);
-        self::assertStringContainsString('GlobalTaxCalculation must be TaxExcluded', $execute);
+        self::assertStringContainsString('erp.quickbooks.invoice.created v4', $execute);
+        self::assertStringContainsString('historical v3 jobs remain replayable', $execute);
+        self::assertStringContainsString('TaxExcluded calculation and tax_declarations', $execute);
 
         $poll = self::section(
             $openApi,
@@ -152,7 +153,7 @@ final class QuickBooksInvoiceExampleContractTest extends TestCase
         self::assertSame('invoice', $request['object_type']);
     }
 
-    public function testExampleInvoiceMatchesCanonicalRuntimeValidatorAndRecipe(): void
+    public function testHistoricalV3ExampleMatchesRegisteredRuntimeValidatorAndRecipe(): void
     {
         $validator = self::contents('src/recipes/quickbooks-tax-envelope.ts');
         $recipe = self::contents('src/recipes/erp.quickbooks.invoice-created.v3.ts');

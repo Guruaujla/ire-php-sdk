@@ -1,7 +1,10 @@
 # QuickBooks Invoice CREATE — safe PHP journey
 
-This runnable example uses the existing PHP signing client for the current,
-marker-free QuickBooks Invoice v3 contract. It demonstrates:
+This runnable, mock-only example preserves the historical marker-free
+QuickBooks Invoice v3 contract. Fresh live submissions require v4 with approved
+`invoice_verification` totals, which this frozen mock does not supply. Use the
+[current v4 request](../../README.md#usage) for new work; never upgrade an
+uncertain historical request, payload or key. This mock demonstrates:
 
 1. creating a connect session;
 2. handing the returned authorization URL to a human;
@@ -66,9 +69,12 @@ return, and consumes the attempt once. The callback query is still a handoff
 result—not an independent authoritative connection read. Never derive
 app/tenant scope or financial enablement from it; the signed execute request uses
 the product's established scope, and the runtime re-checks connection ownership
-and connected/write-gate state. The current public OpenAPI has no independent
-`GET connection status` route, so the example does not invent the future-only
-`/v1/connections/{id}/status` shape. A failed or ambiguous connect-session
+and connected/write-gate state. This historical walkthrough omits the signed
+authoritative connection read. The current API provides
+`GET /v1/connections/{id}?tenant_id=...`; use the
+[connection-status example](../connection-status/) before enabling product
+behavior. Do not substitute the unsupported `/v1/connections/{id}/status`
+shape. A failed or ambiguous connect-session
 request is surfaced to the caller; the example never creates another session
 implicitly.
 

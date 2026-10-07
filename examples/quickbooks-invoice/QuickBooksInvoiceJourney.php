@@ -321,7 +321,8 @@ final class QuickBooksInvoiceJourney
     /**
      * Validate the product return URL after the human completes consent.
      *
-     * The current public API has no independent GET connection-status route.
+     * This historical mock omits the signed authoritative connection read.
+     * Real products must reconcile GET /v1/connections/{id} in tenant scope.
      * The runtime's browser callback projects the connection and redirects to
      * the registered return_url with this result. The product treats the query
      * as a correlated handoff hint, not as an independent authoritative read:

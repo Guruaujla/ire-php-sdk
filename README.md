@@ -98,10 +98,10 @@ no runtime or provider request.
 ## Usage
 
 For a full, credential-free connect-session → OAuth handoff → native QuickBooks
-Invoice CREATE → job-polling walkthrough, see the
-[`examples/quickbooks-invoice`](examples/quickbooks-invoice/) example. It runs
-against an in-process mock transport by default and performs no network or
-provider write.
+Invoice CREATE → job-polling walkthrough, see the historical v3
+[`examples/quickbooks-invoice`](examples/quickbooks-invoice/) mock. It is
+mock-only and is not a fresh live-submission template. Use the current v4
+request below for new work; preserve historical request identities unchanged.
 
 For the provider-agnostic bounded result returned by job polling, see
 [`examples/job-result`](examples/job-result/). It demonstrates tolerant
