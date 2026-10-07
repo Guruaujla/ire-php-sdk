@@ -5,6 +5,7 @@ parameters:
         - examples/job-result
         - examples/connection-status
         - examples/google-calendar
+        - examples/signed-read
     paths:
         - src
         - tests
