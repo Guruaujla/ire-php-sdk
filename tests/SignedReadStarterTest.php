@@ -12,7 +12,7 @@ use Psr\Http\Message\RequestInterface;
 use Psr\Http\Message\ResponseInterface;
 use Psr\Http\Message\StreamInterface;
 
-require_once __DIR__.'/../examples/signed-read/SignedReadStarter.php';
+require_once __DIR__ . '/../examples/signed-read/SignedReadStarter.php';
 
 /** Offline transport: it never opens a socket. */
 final class OfflineReadTransport implements ClientInterface
@@ -97,7 +97,7 @@ final class SignedReadStarterTest extends TestCase
     public function test_problem_details_status_and_unknown_code_are_reported_once_without_raw_errors(): void
     {
         foreach ([401, 403, 429, 500] as $status) {
-            $transport = new OfflineReadTransport($this->response(['type' => 'urn:runtime:test-problem', 'title' => 'Runtime test problem', 'status' => $status, 'detail' => 'PRIVATE '.self::SECRET, 'code' => 'runtime.test_problem', 'request_id' => 'req_actual', 'correlation_id' => null, 'instance' => null], $status, 'application/problem+json'));
+            $transport = new OfflineReadTransport($this->response(['type' => 'urn:runtime:test-problem', 'title' => 'Runtime test problem', 'status' => $status, 'detail' => 'PRIVATE ' . self::SECRET, 'code' => 'runtime.test_problem', 'request_id' => 'req_actual', 'correlation_id' => null, 'instance' => null], $status, 'application/problem+json'));
             $report = SignedReadStarter::run($this->env(), $transport);
             self::assertSame('http_refused', $report['outcome']);
             self::assertSame($status, $report['http_status']);
@@ -166,8 +166,7 @@ final class SignedReadStarterTest extends TestCase
 
     public function test_timeout_before_response_is_unknown_and_sanitized(): void
     {
-        $transport = new class implements ClientInterface
-        {
+        $transport = new class implements ClientInterface {
             public function sendRequest(RequestInterface $request): ResponseInterface
             {
                 throw new \RuntimeException('PRIVATE TIMEOUT');

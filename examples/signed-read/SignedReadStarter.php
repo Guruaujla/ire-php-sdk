@@ -39,12 +39,12 @@ final class SignedReadStarter
             return $sink->write($chunk);
         }]);
 
-        return new HttpClient(['handler' => new CurlHandler, 'timeout' => 10, 'connect_timeout' => 10, 'allow_redirects' => false, 'http_errors' => false, 'proxy' => '', 'sink' => $boundedSink]);
+        return new HttpClient(['handler' => new CurlHandler(), 'timeout' => 10, 'connect_timeout' => 10, 'allow_redirects' => false, 'http_errors' => false, 'proxy' => '', 'sink' => $boundedSink]);
     }
 
     private static function token(mixed $value, int $max = 200, bool $dots = false): bool
     {
-        return is_string($value) && preg_match('/\A[A-Za-z0-9'.($dots ? '._' : '_').'-]{1,'.$max.'}\z/', $value) === 1;
+        return is_string($value) && preg_match('/\A[A-Za-z0-9' . ($dots ? '._' : '_') . '-]{1,' . $max . '}\z/', $value) === 1;
     }
 
     /**
@@ -62,7 +62,7 @@ final class SignedReadStarter
         $host = strtolower($url['host'] ?? '');
         $port = $url['port'] ?? null;
         $defaultPort = $scheme === 'https' ? 443 : 80;
-        $origin = $scheme.'://'.$host.($port !== null && $port !== $defaultPort ? ':'.$port : '');
+        $origin = $scheme . '://' . $host . ($port !== null && $port !== $defaultPort ? ':' . $port : '');
         $known = in_array($origin, ['https://api.integrationengine.ca', 'https://staging.integrationengine.ca'], true);
         $local = ($env['IR_ALLOW_LOCAL'] ?? null) === '1' && in_array($scheme, ['http', 'https'], true) && in_array($host, ['localhost', '127.0.0.1', '[::1]'], true) && $port !== 0;
         $app = $env['IR_APP_ID'] ?? '';
@@ -70,7 +70,7 @@ final class SignedReadStarter
         $tenant = $env['IR_TENANT_ID'] ?? '';
         $secret = $env['IR_SERVICE_KEY_SECRET'] ?? '';
         $job = $env['IR_JOB_ID'] ?? null;
-        if ((! $known && ! $local) || ! in_array($raw, [$origin, $origin.'/'], true) || ! self::token($app, 128, true) || in_array($app, ['.', '..'], true) || ! self::token($key, 128) || ! self::token($tenant) || ($job !== null && ! self::token($job)) || $secret === '') {
+        if ((! $known && ! $local) || ! in_array($raw, [$origin, $origin . '/'], true) || ! self::token($app, 128, true) || in_array($app, ['.', '..'], true) || ! self::token($key, 128) || ! self::token($tenant) || ($job !== null && ! self::token($job)) || $secret === '') {
             throw new \InvalidArgumentException('starter.config_invalid');
         }
         Signer::decodeSecret($secret);
@@ -140,11 +140,11 @@ final class SignedReadStarter
             // SDK config errors can include caller values. Never print them.
             return ['outcome' => 'configuration_invalid', 'code' => 'starter.config_invalid'];
         }
-        $path = $selected['job'] !== null ? '/v1/sync-jobs/'.$selected['job'].'?tenant_id='.$selected['tenant'] : '/v1/sync-jobs?tenant_id='.$selected['tenant'].'&limit=1';
+        $path = $selected['job'] !== null ? '/v1/sync-jobs/' . $selected['job'] . '?tenant_id=' . $selected['tenant'] : '/v1/sync-jobs?tenant_id=' . $selected['tenant'] . '&limit=1';
         $report = ['mode' => $selected['job'] !== null ? 'job' : 'list', 'method' => 'GET', 'path' => $path, 'http_status' => null, 'elapsed_ms' => 0, 'request_id' => null, 'correlation_id' => null, 'problem_code' => null, 'outcome' => 'unknown', 'job' => null];
         $started = hrtime(true);
         try {
-            $factory = new HttpFactory;
+            $factory = new HttpFactory();
             $client = new Client($http ?? self::http(), $factory, $factory, $selected['origin'], $selected['app'], $selected['key'], $selected['secret'], RetryPolicy::disabled());
             $response = $client->send('GET', $path);
             $report['http_status'] = $response->getStatusCode();
