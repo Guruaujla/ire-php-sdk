@@ -95,6 +95,68 @@ manager or deployment environment. Never commit a real secret in
 CI smoke uses a public synthetic test key and a mocked PSR-18 transport; it makes
 no runtime or provider request.
 
+## Connect an existing product customer
+
+```php
+use Ezee\IntegrationRuntime\TenantClient;
+
+// $client is the backend's configured Client with a bounded PSR-18 timeout.
+// $workspace comes from product authentication and an administrator check.
+$tenants = new TenantClient($client);
+$mapping = $tenants->registerOrResolveTenant($workspace->id, $workspace->name);
+$response = $client->send(
+    'GET',
+    '/v1/sync-jobs?'.http_build_query(
+        ['tenant_id' => $mapping['tenant_id'], 'limit' => 1],
+        '', '&', PHP_QUERY_RFC3986,
+    ),
+);
+if ($response->getStatusCode() !== 200) {
+    throw new \RuntimeException('Backend read failed');
+}
+```
+
+`registerTenant($externalId, $name)` exposes registration flags;
+`getTenantByExternalId($externalId)` retrieves the retained mapping.
+`TenantMappingException` exposes `problemCode` and nullable `httpStatus`.
+The transport remains your configured PSR-18 implementation; PHP >= 8.2 remains
+required. Do not expose the SDK service-key configuration to browser code.
+
+These helpers use app-authenticated public `POST /v1/tenants` and exact
+`GET /v1/tenants/by-external-id/{external_tenant_id}`. Configure app/database/key
+once; the product backend derives the existing workspace ID and name from its
+authenticated session and database. Never accept a browser tenant ID as authority.
+Service secrets stay on the backend; encrypted provider tokens stay in the runtime.
+
+Customer IDs are case-sensitive ASCII `[A-Za-z0-9._-]`, 1–128 characters;
+names are 1–200 UTF-16 code units. Keep the original ID, including numeric-looking
+spelling. The helpers encode legacy `.`/`..` lookup segments as
+`%252E`/`%252E%252E` and sign those exact bytes. Treat the returned runtime
+ID as opaque.
+
+Register-or-resolve first looks up that exact ID. Only `404 tenant.not_found`
+permits one registration. A lost transport response, malformed success or
+`5xx` triggers exact lookup recovery with a fresh signature, never another POST
+within that call. An unsupported deployment, authorization refusal, mismatched
+identity or metadata conflict fails closed; there is no internal fallback.
+Direct registration exposes `created` and `metadata_matches`; existing metadata
+and canonical identity win. Reconcile name conflicts through product support.
+Lookup preserves inactive and future status strings without reactivation.
+
+Persist and atomically compare the mapping in normal product storage under
+`(environment, appId, customerId)`. Retain inactive mappings/tombstones; do not
+recycle external IDs. The mapping helpers do not implement product authorization,
+storage or consent. A signed job-list HTTP 200 with empty results is a successful
+first read. Consent-session creation is separate and cannot use registration's
+lost-response recovery. Source support does not prove the selected deployment
+supports these routes.
+
+See the [tested TypeScript customer-connect reference](../../examples/customer-connect/README.md)
+for required product auth/storage ports, one-time return-state validation and
+authoritative status. PHP/Python provide the same mapping helper behavior; their
+HTTP-client and runtime prerequisites above still apply. Native OAuth and human
+usability acceptance remain unverified.
+
 ## Usage
 
 For a full, credential-free connect-session → OAuth handoff → native QuickBooks
@@ -414,9 +476,9 @@ mis-canonicalized method produces.
 
 ## What this SDK does NOT do (yet)
 
-- No typed per-endpoint methods — this is the signing core + a thin PSR-18
-  client. A generated per-endpoint client is a follow-up.
-- Retries cover `429` only — no retry of transport exceptions or `5xx`,
+- Only customer-mapping endpoints have typed helpers; other endpoints use the
+  signed transport. A generated endpoint client is a follow-up.
+- Transport retries cover `429` only — no replay of transport exceptions or `5xx`,
   deliberately (see [Retrying 429s](#retrying-429s)).
 
 ## Development
