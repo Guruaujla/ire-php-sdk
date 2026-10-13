@@ -189,6 +189,20 @@ final class TenantClientTest extends TestCase
         }
     }
 
+    public function test_conflicting_recovery_mapping_is_not_masked(): void
+    {
+        foreach ([[self::dto('foreign'), 'sdk.tenant_identity_conflict'], [self::dto(name: 'Other name'), 'sdk.tenant_metadata_conflict']] as [$body, $code]) {
+            [$tenant, $transport] = self::fixture([self::response(['code' => 'tenant.not_found'], 404), new \RuntimeException('lost'), self::response($body)]);
+            try {
+                $tenant->registerOrResolveTenant('Customer_001', 'Customer');
+                self::fail('Expected conflict');
+            } catch (TenantMappingException $error) {
+                self::assertSame($code, $error->problemCode);
+            }
+            self::assertCount(3, $transport->requests);
+        }
+    }
+
     public function test_utf16_name_limit_before_io(): void
     {
         foreach (['', str_repeat('😀', 101)] as $name) {
