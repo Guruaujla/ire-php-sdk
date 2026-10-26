@@ -56,6 +56,10 @@ final class JobsAndConnectionsTest extends TestCase
         self::assertSame('1042', $published->externalId());
         $legacy = SyncJob::fromArray(['id' => 'job_1', 'status' => 'completed', 'external_object_id' => '77']);
         self::assertSame('77', $legacy->externalId());
+        $payment = SyncJob::fromArray(['id' => 'job_1', 'status' => 'completed', 'result' => ['payment' => ['id' => '310']]]);
+        self::assertSame('310', $payment->externalId());
+        $master = SyncJob::fromArray(['id' => 'job_1', 'status' => 'completed', 'result' => ['record' => ['external_id' => '58']]]);
+        self::assertSame('58', $master->externalId());
         $none = SyncJob::fromArray(['id' => 'job_1', 'status' => 'completed']);
         self::assertNull($none->externalId());
     }

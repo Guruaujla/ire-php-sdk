@@ -64,18 +64,34 @@ final readonly class SyncJob
     }
 
     /**
-     * The QuickBooks ID of the document this job wrote: the published
-     * `result.external_id`, falling back to `external_object_id`. Null until
-     * completed, and always null for Invoice create v4 (it publishes no result).
+     * The QuickBooks ID of the document this job wrote, from the published
+     * result: `external_id` (Invoice, update, void, refund, credit memo),
+     * `payment.id` (Payment) or `record.external_id` (Customer/Item), then
+     * `external_object_id`. Null until completed, and always null for Invoice
+     * create v4 (it publishes no result).
      */
     public function externalId(): ?string
     {
-        $published = $this->result['external_id'] ?? null;
-        if (is_string($published) && $published !== '') {
-            return $published;
+        return self::externalIdFrom($this->raw);
+    }
+
+    /**
+     * {@see externalId()} for a raw job body.
+     *
+     * @param array<mixed> $job
+     */
+    public static function externalIdFrom(array $job): ?string
+    {
+        $result = is_array($job['result'] ?? null) ? $job['result'] : [];
+        $payment = is_array($result['payment'] ?? null) ? $result['payment'] : [];
+        $record = is_array($result['record'] ?? null) ? $result['record'] : [];
+        foreach ([$result['external_id'] ?? null, $payment['id'] ?? null, $record['external_id'] ?? null, $job['external_object_id'] ?? null] as $candidate) {
+            if (is_string($candidate) && $candidate !== '') {
+                return $candidate;
+            }
         }
 
-        return $this->externalObjectId;
+        return null;
     }
 
     public function isTerminal(): bool

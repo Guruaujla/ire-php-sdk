@@ -188,7 +188,7 @@ try {
 
 $job = (new Jobs($client))->wait($receipt->pollingUrl, timeoutSeconds: 60);
 if ($job->isCompleted()) {
-    $quickBooksInvoiceId = $job->externalId();   // published result.external_id
+    $quickBooksInvoiceId = $job->externalId();   // from the published result
 }
 ```
 
