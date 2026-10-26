@@ -69,6 +69,7 @@ final class Jobs
         $interval = max(0.5, $intervalSeconds);
         $last = null;
         while (true) {
+            $transient = null;
             try {
                 $last = $this->get($pollingUrl);
                 if ($last->isTerminal()) {
@@ -79,10 +80,17 @@ final class Jobs
                 if ($problem->httpStatus !== 429 && $problem->httpStatus < 500) {
                     throw $problem;
                 }
+                $transient = $problem;
                 $delay = (float) max($interval, $problem->retryAfterSeconds ?? 0);
             }
             if (microtime(true) + $delay > $deadline) {
-                return $last ?? $this->get($pollingUrl);
+                // No successful read to return: surface the transient error
+                // rather than issue an extra request past the deadline.
+                if ($last === null) {
+                    throw $transient ?? new \LogicException('unreachable: no read and no error');
+                }
+
+                return $last;
             }
             ($this->sleep)($delay);
             $interval = min($interval * 1.5, 30.0);

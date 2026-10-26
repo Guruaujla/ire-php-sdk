@@ -57,6 +57,23 @@ final class JobsAndConnectionsTest extends TestCase
         self::assertFalse($job->isTerminal());
     }
 
+    public function testWaitSurfacesATransientErrorWhenItCannotWaitAndHasNoRead(): void
+    {
+        $transport = new ScriptedTransport([Clients::json(429, ['code' => 'rate_limit.quota_exceeded'], ['Retry-After' => '60'])]);
+        $slept = [];
+        $jobs = new Jobs(Clients::client($transport), static function (float $s) use (&$slept): void {
+            $slept[] = $s;
+        });
+        try {
+            $jobs->wait(self::URL, 1);
+            self::fail('expected the 429 to surface');
+        } catch (RuntimeProblemException $e) {
+            self::assertSame(429, $e->httpStatus);
+        }
+        self::assertCount(1, $transport->requests);
+        self::assertSame([], $slept);
+    }
+
     public function testWaitSurfacesNonTransientReadFailures(): void
     {
         $transport = new ScriptedTransport([Clients::json(404, ['code' => 'sync_job.not_found'])]);
