@@ -26,7 +26,7 @@ final class QuickBooks
      * contract, never a silent upgrade of an accepted job.
      */
     public const OPERATIONS = [
-        'quickbooks.invoice.create' => ['erp.quickbooks.invoice.created', 4, 'erp.invoice.created', 'invoice'],
+        'quickbooks.invoice.create' => ['erp.quickbooks.invoice.created', 5, 'erp.invoice.created', 'invoice'],
         'quickbooks.invoice.update_sparse' => ['erp.quickbooks.invoice.updated', 1, 'erp.invoice.updated', 'invoice_update'],
         'quickbooks.invoice.void' => ['erp.quickbooks.invoice.voided', 1, 'erp.invoice.voided', 'invoice_void'],
         'quickbooks.payment.create' => ['erp.quickbooks.payment.created', 2, 'erp.payment.created', 'payment'],

@@ -188,9 +188,14 @@ try {
 
 $job = (new Jobs($client))->wait($receipt->pollingUrl, timeoutSeconds: 60);
 if ($job->isCompleted()) {
-    $quickBooksInvoiceId = $job->externalObjectId;
+    $quickBooksInvoiceId = $job->externalId();   // published result.external_id
 }
 ```
+
+The typed helpers send Invoice create as recipe version 5: the same payload and
+guards as version 4, plus the verified Invoice ID in the job result. A v4 job
+publishes no result, so it never reports the Invoice ID. Keep an accepted job's
+recorded version on every retry.
 
 | Class | Covers |
 | --- | --- |

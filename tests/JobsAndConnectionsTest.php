@@ -50,6 +50,16 @@ final class JobsAndConnectionsTest extends TestCase
         self::assertSame(3.0, $slept[1]);
     }
 
+    public function testExternalIdComesFromThePublishedResult(): void
+    {
+        $published = SyncJob::fromArray(['id' => 'job_1', 'status' => 'completed', 'external_object_id' => null, 'result' => ['external_id' => '1042']]);
+        self::assertSame('1042', $published->externalId());
+        $legacy = SyncJob::fromArray(['id' => 'job_1', 'status' => 'completed', 'external_object_id' => '77']);
+        self::assertSame('77', $legacy->externalId());
+        $none = SyncJob::fromArray(['id' => 'job_1', 'status' => 'completed']);
+        self::assertNull($none->externalId());
+    }
+
     public function testWaitReturnsTheLastReadAtTheDeadline(): void
     {
         $transport = new ScriptedTransport([Clients::json(200, self::job('processing'))]);

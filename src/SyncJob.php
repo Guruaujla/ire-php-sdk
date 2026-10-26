@@ -63,6 +63,21 @@ final readonly class SyncJob
         return $out;
     }
 
+    /**
+     * The QuickBooks ID of the document this job wrote: the published
+     * `result.external_id`, falling back to `external_object_id`. Null until
+     * completed, and always null for Invoice create v4 (it publishes no result).
+     */
+    public function externalId(): ?string
+    {
+        $published = $this->result['external_id'] ?? null;
+        if (is_string($published) && $published !== '') {
+            return $published;
+        }
+
+        return $this->externalObjectId;
+    }
+
     public function isTerminal(): bool
     {
         return in_array($this->status, self::TERMINAL, true);
