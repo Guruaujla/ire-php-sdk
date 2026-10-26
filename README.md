@@ -17,11 +17,34 @@ client (Guzzle, Symfony HttpClient's PSR-18 adapter, ...).
 
 ## Install
 
-This package is **not published to Packagist**. Today, the supported consumption
-path is an approved local checkout of this private repository plus a Composer
-[`path`](https://getcomposer.org/doc/05-repositories.md#path) repository. Do not
-point a Composer `vcs` repository at the monorepo root: this package's
-`composer.json` is in `sdks/php`, not at that root.
+This package is **not published to Packagist**. It is mirrored to the private
+repository [`Guruaujla/ire-php-sdk`](https://github.com/Guruaujla/ire-php-sdk),
+tagged by release. Install from there with a Composer `vcs` repository and a
+GitHub token that can read it:
+
+```json
+{
+    "repositories": [
+        { "type": "vcs", "url": "https://github.com/Guruaujla/ire-php-sdk" }
+    ]
+}
+```
+
+```bash
+composer config --global github-oauth.github.com <token>
+composer require 'ezee/integration-runtime-sdk:^1.0' 'guzzlehttp/guzzle:^7.15'
+```
+
+Laravel apps should install
+[`ezee/laravel-integration-runtime`](https://github.com/Guruaujla/ire-laravel)
+instead, which requires this SDK.
+
+### From a runtime checkout
+
+Inside the runtime repository, or from an approved checkout of it, use a
+Composer [`path`](https://getcomposer.org/doc/05-repositories.md#path)
+repository. Do not point a Composer `vcs` repository at the monorepo root: this
+package's `composer.json` is in `sdks/php`, not at that root.
 
 In the consuming PHP application's `composer.json`, add:
 
