@@ -157,6 +157,49 @@ authoritative status. PHP/Python provide the same mapping helper behavior; their
 HTTP-client and runtime prerequisites above still apply. Native OAuth and human
 usability acceptance remain unverified.
 
+## QuickBooks operations (typed)
+
+`QuickBooks`, `Jobs`, `Connections` and `WebhookVerifier` wrap the signed
+client for the live QuickBooks operations. Payload shapes and one
+validator-checked example per operation are in
+[`docs-site/content/quickbooks-operations.md`](../../docs-site/content/quickbooks-operations.md).
+Laravel apps can use [`sdks/laravel`](../laravel/), which wires all of this.
+
+```php
+use Ezee\IntegrationRuntime\{Connections, Jobs, QuickBooks};
+use Ezee\IntegrationRuntime\Exception\RuntimeProblemException;
+
+$qb = new QuickBooks($client);
+
+// Build once and persist with the ERP invoice before the first attempt.
+$request = QuickBooks::buildRequest(
+    'quickbooks.invoice.create', $tenantId, $connectionId,
+    'INV-00042', 'erp_invoice_INV-00042:create', $payload,
+);
+try {
+    $receipt = $qb->submit($request);          // same array on every retry
+} catch (RuntimeProblemException $e) {
+    match ($e->decision()) {
+        RuntimeProblemException::RETRY_SAME_REQUEST => /* wait, submit($request) again */ null,
+        RuntimeProblemException::ASK_OPERATOR => /* release gate; do not loop */ null,
+        default => /* fix input or reconcile; never mint a new key */ null,
+    };
+}
+
+$job = (new Jobs($client))->wait($receipt->pollingUrl, timeoutSeconds: 60);
+if ($job->isCompleted()) {
+    $quickBooksInvoiceId = $job->externalObjectId;
+}
+```
+
+| Class | Covers |
+| --- | --- |
+| `QuickBooks` | `createInvoice`, `updateInvoice`, `voidInvoice`, `createPayment`, `createRefund`, `createCreditMemo`, `applyCreditMemo`, `upsertMaster`, plus `findMaster`, `getMasterMapping`, `status`. `OPERATIONS` holds the fixed recipe identities. |
+| `Jobs` | `get(pollingUrl)`, `find`, `list`, and `wait`, which only ever re-reads and never resubmits. |
+| `Connections` | `start` (connect session), `get`, `list`. |
+| `WebhookVerifier` | Verifies `sync_job.*` deliveries against the raw target and raw body. Returns a `WebhookEvent`; dedupe on `deliveryId`. |
+| `RuntimeProblemException` | `problemCode`, `requestId`, `retryAfterSeconds`, and `decision()` mapped from the documented HTTP decision table. |
+
 ## Usage
 
 For a full, credential-free connect-session → OAuth handoff → native QuickBooks
@@ -476,8 +519,9 @@ mis-canonicalized method produces.
 
 ## What this SDK does NOT do (yet)
 
-- Only customer-mapping endpoints have typed helpers; other endpoints use the
-  signed transport. A generated endpoint client is a follow-up.
+- Typed helpers cover customer mapping, QuickBooks operations, jobs,
+  connections and webhooks. Other endpoints (calendar, dry-run mapping,
+  disconnect, usage) use the signed transport.
 - Transport retries cover `429` only — no replay of transport exceptions or `5xx`,
   deliberately (see [Retrying 429s](#retrying-429s)).
 

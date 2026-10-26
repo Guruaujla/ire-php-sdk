@@ -1,0 +1,12 @@
+{
+  "notice": "Synthetic delivery signed by src/outbound/sign.ts; pinned by test/sdk/outbound-webhook-fixture.test.ts.",
+  "secret": "AAECAwQFBgcICQoLDA0ODxAREhMUFRYXGBkaGxwdHh8",
+  "url": "https://erp.example.com/integration-runtime/webhooks",
+  "method": "POST",
+  "app_id": "app_erp",
+  "key_id": "whk_example",
+  "timestamp": "1785681067",
+  "nonce": "0190d3c4-8e21-7f3a-9b64-attempt1",
+  "body": "{\"schema_version\":1,\"delivery_id\":\"0190d3c4-8e21-7f3a-9b64-2c1f5a8e4d07\",\"event_id\":\"0190d3b7-1a02-7c55-8e91-6d3b0f2a91cc:sync_job.completed\",\"event_type\":\"sync_job.completed\",\"occurred_at\":\"2026-08-02T14:31:07.482Z\",\"app_id\":\"app_erp\",\"tenant_id\":\"tnt_9f21c4\",\"data\":{\"sync_job\":{\"id\":\"0190d3b7-1a02-7c55-8e91-6d3b0f2a91cc\",\"status\":\"completed\",\"operation_key\":\"quickbooks.invoice.create\",\"object_type\":\"invoice\",\"connection_id\":\"conn_example\",\"provider_key\":\"quickbooks\",\"external_object_id\":\"1042\",\"attempt_count\":1,\"last_error_code\":null,\"created_at\":\"2026-08-02T14:31:02.118Z\",\"completed_at\":\"2026-08-02T14:31:07.482Z\"}}}",
+  "signature": "eQPdt_isS9P-Hzg_t61TZj_0lJQXyrFfpqSBB3dE9Ts"
+}
