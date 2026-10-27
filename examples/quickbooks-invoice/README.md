@@ -39,7 +39,7 @@ These identifiers are intentionally distinct:
 | `tenant_id` | Product tenant scope | Runtime operator tenant onboarding for the selected app. |
 | `connection_id` | One projected native QuickBooks company connection | Returned by the runtime to the registered product `return_url` after human OAuth consent. Do not invent it or substitute a tenant id. |
 
-See [`docs/runbooks/e2e-onboarding.md`](../../../../docs/runbooks/e2e-onboarding.md)
+See `docs/runbooks/e2e-onboarding.md` in the runtime repository
 for the operator-owned app/tenant/key chain. This example does not call those
 internal endpoints and does not invent production or Assist-specific values.
 
@@ -97,9 +97,9 @@ this code, the operator must supply references read from the exact connected
 QuickBooks company and review that each tax-code reference matches its declared
 treatment. The runtime then performs the live sales-tax preflight and refuses
 companies outside the currently qualified single-currency CAD profile. See
-[`quickbooks-invoice-create-reliability.md`](../../../../docs/runbooks/quickbooks-invoice-create-reliability.md)
-and
-[`quickbooks-invoice-production-cutover.md`](../../../../docs/runbooks/quickbooks-invoice-production-cutover.md).
+`quickbooks-invoice-create-reliability.md` and
+`quickbooks-invoice-production-cutover.md` in the runtime repository's
+`docs/runbooks/`.
 
 This example does not enable the financial operation, qualify a company, file a
 policy attestation, deploy anything, or call QuickBooks.

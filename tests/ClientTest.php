@@ -529,6 +529,19 @@ final class ClientTest extends TestCase
         );
     }
 
+    public function testWithoutRetryReturnsTheFirst429WithoutSleeping(): void
+    {
+        $http = new ScriptedHttpClient([self::tooManyRequests('30'), new Response(200, [], '{"ok":true}')]);
+        $sleeps = new SleepRecorder();
+        $client = $this->retryingClient($http, $sleeps)->withoutRetry();
+
+        $response = $client->send('GET', '/v1/health');
+
+        self::assertSame(429, $response->getStatusCode());
+        self::assertCount(1, $http->requests);
+        self::assertSame([], $sleeps->seconds);
+    }
+
     public function testEverySignedAttemptGetsAFreshNonceOverByteIdenticalBody(): void
     {
         // A body whose serialization is caller code that is NOT pure: it

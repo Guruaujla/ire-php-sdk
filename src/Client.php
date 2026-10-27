@@ -202,6 +202,27 @@ final class Client
     }
 
     /**
+     * A copy with 429 retries disabled: a 429 is thrown at once instead of
+     * sleeping inside the call. For queued jobs and webhook handlers, which
+     * reschedule themselves and must not block a worker for minutes.
+     */
+    public function withoutRetry(): self
+    {
+        return new self(
+            $this->httpClient,
+            $this->requestFactory,
+            $this->streamFactory,
+            $this->baseUrl,
+            $this->appId,
+            $this->keyId,
+            $this->secret,
+            RetryPolicy::disabled(),
+            $this->sleep,
+            $this->random,
+        );
+    }
+
+    /**
      * Build and sign a request WITHOUT sending it — for callers with their
      * own PSR-18 client. Send the returned request AS-IS: its body stream
      * holds the exact bytes the signature was computed over, and

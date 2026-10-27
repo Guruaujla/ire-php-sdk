@@ -5,11 +5,11 @@ PHP SDK for making **HMAC-signed** requests to the Integration Runtime
 the signature.
 
 The signing core mirrors the runtime's verifying side
-([`src/security/hmac.ts`](../../src/security/hmac.ts) +
-[`src/middleware/service-auth.ts`](../../src/middleware/service-auth.ts))
+(`src/security/hmac.ts` and `src/middleware/service-auth.ts` in the runtime
+repository)
 **byte-for-byte**. A repo-root replay test signs a real request with this SDK
 and runs it through the actual `serviceAuth` middleware to prove
-wire-compatibility (see [`test/sdk/`](../../test/sdk/)).
+wire-compatibility (`test/sdk/` in the runtime repository).
 
 Transport-agnostic: the signing core (`Signer`) has zero runtime dependencies,
 and the `Client` speaks **PSR-18 / PSR-17 / PSR-7** — bring any compliant HTTP
@@ -174,7 +174,7 @@ first read. Consent-session creation is separate and cannot use registration's
 lost-response recovery. Source support does not prove the selected deployment
 supports these routes.
 
-See the [tested TypeScript customer-connect reference](../../examples/customer-connect/README.md)
+See the tested TypeScript customer-connect reference (`examples/customer-connect` in the runtime repository)
 for required product auth/storage ports, one-time return-state validation and
 authoritative status. PHP/Python provide the same mapping helper behavior; their
 HTTP-client and runtime prerequisites above still apply. Native OAuth and human
@@ -185,8 +185,9 @@ usability acceptance remain unverified.
 `QuickBooks`, `Jobs`, `Connections` and `WebhookVerifier` wrap the signed
 client for the live QuickBooks operations. Payload shapes and one
 validator-checked example per operation are in
-[`docs-site/content/quickbooks-operations.md`](../../docs-site/content/quickbooks-operations.md).
-Laravel apps can use [`sdks/laravel`](../laravel/), which wires all of this.
+`quickbooks-operations.md` and `.json`, shipped in the Laravel package's `docs/`
+folder ([`Guruaujla/ire-laravel`](https://github.com/Guruaujla/ire-laravel)).
+Laravel apps can use that package, which wires all of this.
 
 ```php
 use Ezee\IntegrationRuntime\{Connections, Jobs, QuickBooks};
@@ -496,7 +497,7 @@ then signs it — so the bytes hashed and the bytes on the wire cannot drift:
 spell — both were measured to travel unchanged on curl *and* the stream handler,
 so normalizing them here would create the very mismatch the belt prevents.
 
-**[`../PATH-CONTRACT.md`](../PATH-CONTRACT.md) has the full measured table**
+**`sdks/PATH-CONTRACT.md` in the runtime repository has the full measured table**
 across all three SDKs. One caveat specific to PHP: with the default Guzzle stack
 the bytes that reach the server for `%`, `[`, `]`, `|` and a query `\` are
 percent-encoded — but by `guzzlehttp/psr7`'s `Uri`, **not** by this SDK, so a
