@@ -180,7 +180,43 @@ authoritative status. PHP/Python provide the same mapping helper behavior; their
 HTTP-client and runtime prerequisites above still apply. Native OAuth and human
 usability acceptance remain unverified.
 
-## QuickBooks operations (typed)
+## Accounting (provider-neutral)
+
+`Accounting` is the integration to use for new code. It takes ERP ids, ERP
+codes and decimal-string money; the runtime maps them to the tenant's provider
+(QuickBooks today) and admits the native operation with every native guard. No
+method takes a provider. Payload shapes and one validator-checked example per
+operation: `accounting-operations.md` and `.json` in the Laravel package's
+`docs/` folder, with `accounting-migration.md` for code that uses `QuickBooks`.
+
+```php
+use Ezee\IntegrationRuntime\Accounting;
+
+$accounting = new Accounting($client);
+
+// Build once and persist with the ERP invoice before the first attempt.
+$request = Accounting::buildRequest(
+    'accounting.invoice.create', $tenantId, 'INV-00042', 'invoice:INV-00042:create', $payload,
+);
+$receipt = $accounting->submit($request);             // same array on every retry
+$status = $accounting->status($tenantId, $receipt->jobId);
+if ($status['status'] === 'completed') {
+    $revision = $status['result']['revision'];        // send back on the next write
+}
+```
+
+| Method | Covers |
+| --- | --- |
+| Writes | `upsertCustomer`, `upsertItem`, `createInvoice`, `updateInvoice`, `voidInvoice`, `createPayment`, `createRefund`, `createCreditMemo`, `applyCreditMemo` (`OPERATIONS` lists the keys) |
+| Results | `status` (neutral result), `refresh` (fresh provider read of an invoice or payment) |
+| Connection | `providers`, `connectionId` (the tenant's one accounting connection) |
+| Onboarding | `listRecords`, `matchRecords`, `bindRecords` (customers, items, tax codes); `referenceData` (one record by exact id or name), `getMapping`, `setMapping`, `deleteMapping` (codes); `settings`, `updateSettings` |
+| Migration | `link` (ERP line ids of an invoice created through `QuickBooks`) |
+
+## QuickBooks operations (typed, deprecated)
+
+Deprecated since 1.3.0 in favour of `Accounting`; kept working and removed no
+earlier than 2.0.
 
 `QuickBooks`, `Jobs`, `Connections` and `WebhookVerifier` wrap the signed
 client for the live QuickBooks operations. Payload shapes and one

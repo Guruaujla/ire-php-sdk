@@ -17,6 +17,10 @@ use Ezee\IntegrationRuntime\Internal\ResponseReader;
  * Idempotency is the caller's job and it is not optional: derive the key once
  * from the business event, store it with the ERP document, and pass the SAME
  * key and payload on every retry. An exact retry returns the original job.
+ *
+ * @deprecated since 1.3.0, use {@see Accounting}: the same operations with ERP
+ *             ids and no provider fields. Kept working; removed no earlier
+ *             than 2.0. See accounting-migration.md.
  */
 final class QuickBooks
 {

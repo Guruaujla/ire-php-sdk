@@ -64,6 +64,36 @@ final class WebhookVerifierTest extends TestCase
         self::assertSame('0190d3b7-1a02-7c55-8e91-6d3b0f2a91cc', $event->jobId());
     }
 
+    public function testParsesTheNeutralAccountingDocumentEvent(): void
+    {
+        $body = [
+            'schema_version' => 1, 'delivery_id' => 'd1', 'event_id' => 'e1:accounting.document.status_changed',
+            'event_type' => 'accounting.document.status_changed', 'occurred_at' => '2026-10-28T10:00:00.000Z',
+            'app_id' => 'app_erp', 'tenant_id' => 't1', 'callback_epoch' => 1,
+            'data' => ['connection_id' => 'c1', 'sequence' => 3, 'document' => ['document_type' => 'invoice', 'erp_id' => 'INV-1', 'balance' => '0.00']],
+        ];
+        $event = WebhookEvent::fromArray($body);
+        self::assertSame(['document_type' => 'invoice', 'erp_id' => 'INV-1', 'balance' => '0.00'], $event->document);
+        self::assertSame([], $event->job);
+        self::assertNull($event->jobId());
+        self::assertSame('c1', $event->connectionId());
+        self::assertSame(3, $event->sequence());
+
+        unset($body['data']['document']);
+        $this->expectException(\UnexpectedValueException::class);
+        $this->expectExceptionMessage('data.document');
+        WebhookEvent::fromArray($body);
+    }
+
+    public function testASyncJobEventStillRequiresItsJob(): void
+    {
+        $this->expectExceptionMessage('data.sync_job');
+        WebhookEvent::fromArray([
+            'delivery_id' => 'd', 'event_id' => 'e', 'event_type' => 'sync_job.completed', 'occurred_at' => 'x',
+            'app_id' => 'a', 'tenant_id' => 't', 'data' => ['document' => ['erp_id' => 'INV-1']],
+        ]);
+    }
+
     public function testSelectsTheSecretByEndpointKeyDuringRotation(): void
     {
         $f = self::fixture();
