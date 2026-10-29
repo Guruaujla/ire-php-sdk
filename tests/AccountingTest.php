@@ -112,6 +112,90 @@ final class AccountingTest extends TestCase
         }
     }
 
+    /** @return iterable<string, array{int, string, string}> */
+    public static function accountingProblems(): iterable
+    {
+        yield 'mapping missing' => [409, 'accounting.mapping_missing', RuntimeProblemException::FIX_SETUP];
+        yield 'record type off' => [409, 'accounting.record_type_disabled', RuntimeProblemException::FIX_SETUP];
+        yield 'unlinked' => [409, 'accounting.document_unlinked', RuntimeProblemException::FIX_SETUP];
+        yield 'no connection' => [409, 'accounting.no_accounting_connection', RuntimeProblemException::FIX_SETUP];
+        yield 'revision' => [409, 'accounting.revision_conflict', RuntimeProblemException::REVIEW_AND_RESUBMIT];
+        yield 'amount' => [409, 'accounting.amount_exceeded', RuntimeProblemException::REVIEW_AND_RESUBMIT];
+        yield 'tax' => [409, 'accounting.tax_mismatch', RuntimeProblemException::REVIEW_AND_RESUBMIT];
+        yield 'number exists' => [409, 'accounting.document_exists', RuntimeProblemException::REVIEW_AND_RESUBMIT];
+        yield 'period closed' => [409, 'accounting.period_closed', RuntimeProblemException::REVIEW_AND_RESUBMIT];
+        yield 'before start' => [409, 'accounting.before_sync_start', RuntimeProblemException::DO_NOT_SYNC];
+        yield 'unsupported' => [422, 'accounting.capability_unsupported', RuntimeProblemException::DO_NOT_SYNC];
+        yield 'unavailable' => [503, 'accounting.provider_unavailable', RuntimeProblemException::RETRY_SAME_REQUEST];
+        yield 'rate limited' => [429, 'accounting.rate_limited', RuntimeProblemException::RETRY_SAME_REQUEST];
+        yield 'mapping conflict' => [409, 'accounting.mapping_conflict', RuntimeProblemException::FIX_REQUEST];
+        yield 'settings conflict' => [409, 'accounting.settings_conflict', RuntimeProblemException::FIX_REQUEST];
+        yield 'invalid' => [400, 'accounting.invalid_input', RuntimeProblemException::FIX_REQUEST];
+        yield 'idempotency' => [409, 'accounting.idempotency_conflict', RuntimeProblemException::STOP_AND_RECONCILE];
+        yield 'in progress' => [409, 'accounting.operation_in_progress', RuntimeProblemException::RETRY_SAME_REQUEST];
+        yield 'link conflict' => [409, 'accounting.link_conflict', RuntimeProblemException::STOP_AND_RECONCILE];
+        yield 'disabled' => [403, 'accounting.operation_disabled', RuntimeProblemException::ASK_OPERATOR];
+        yield 'unknown 409' => [409, 'accounting.something_new', RuntimeProblemException::STOP_AND_RECONCILE];
+        yield 'unknown 422' => [422, 'accounting.something_new', RuntimeProblemException::STOP_AND_RECONCILE];
+        yield 'unknown 400' => [400, 'accounting.something_new', RuntimeProblemException::STOP_AND_RECONCILE];
+        yield 'not found' => [404, 'accounting.connection_not_found', RuntimeProblemException::FIX_REQUEST];
+        yield 'connection exists' => [409, 'accounting.connection_exists', RuntimeProblemException::FIX_SETUP];
+        yield 'native refusal 422' => [422, 'accounting.provider_refused', RuntimeProblemException::FIX_REQUEST];
+        yield 'native refusal 409' => [409, 'accounting.provider_refused', RuntimeProblemException::STOP_AND_RECONCILE];
+    }
+
+    #[DataProvider('accountingProblems')]
+    public function testMapsAccountingProblemsToTheDocumentedDecision(int $status, string $code, string $decision): void
+    {
+        $transport = new ScriptedTransport([Clients::json($status, ['code' => $code, 'request_id' => 'req_1'])]);
+        try {
+            (new Accounting(Clients::client($transport)))->createInvoice('t', 'INV-1', 'invoice:INV-1:create', ['invoice' => []]);
+            self::fail('expected a problem');
+        } catch (RuntimeProblemException $problem) {
+            self::assertSame($decision, $problem->decision());
+        }
+    }
+
+    /**
+     * Every code in the docs Errors table (the same file the runtime ships)
+     * decides what its decision() column says, at the HTTP status it lists.
+     */
+    public function testDecisionMatchesTheDocsErrorsTable(): void
+    {
+        $docs = (string) file_get_contents(__DIR__ . '/../../../docs-site/content/accounting-operations.md');
+        $table = substr($docs, (int) strpos($docs, '## Errors'), (int) strpos($docs, '## Retry rules') - (int) strpos($docs, '## Errors'));
+        $checked = 0;
+        $documented = [];
+        foreach (explode("\n", $table) as $line) {
+            if (! str_starts_with($line, '| `accounting.')) {
+                continue;
+            }
+            $cells = array_map('trim', explode('|', $line));
+            $decision = str_replace('`', '', $cells[count($cells) - 2]);
+            preg_match_all('/`(accounting\.[a-z_]+)`([^`]*)/', $cells[1], $codes, PREG_SET_ORDER);
+            foreach ($codes as [, $code, $after]) {
+                $documented[] = $code;
+                // The status after this code, else the row's first one; "(native status)" rows try two.
+                $statuses = match (true) {
+                    preg_match('/\((\d{3})/', $after, $m) === 1 => [(int) $m[1]],
+                    preg_match('/\((\d{3})/', $cells[1], $m) === 1 => [(int) $m[1]],
+                    default => [409, 422],
+                };
+                foreach ($statuses as $status) {
+                    $expected = $decision === 'by HTTP status' ? (new RuntimeProblemException($status, 'native.code'))->decision() : $decision;
+                    self::assertSame($expected, (new RuntimeProblemException($status, $code))->decision(), $code . ' (' . $status . ')');
+                    $checked++;
+                }
+            }
+        }
+        self::assertGreaterThan(25, $checked);
+        // And the SDK maps no code the table leaves out.
+        $map = (new \ReflectionClassConstant(RuntimeProblemException::class, 'ACCOUNTING_DECISIONS'))->getValue();
+        $mapped = is_array($map) ? array_keys($map) : [];
+        self::assertNotSame([], $mapped);
+        self::assertSame([], array_values(array_diff($mapped, $documented)));
+    }
+
     public function testReadsAndAdminCallsUseTheDocumentedRoutes(): void
     {
         $ok = static fn(array $body = ['ok' => true]) => Clients::json(200, $body);
@@ -124,6 +208,7 @@ final class AccountingTest extends TestCase
             $ok(),
             $ok(),
             Clients::json(204, null),
+            $ok(),
             $ok(),
             $ok(),
             $ok(),
@@ -142,6 +227,7 @@ final class AccountingTest extends TestCase
         $a->settings('t1', 'c 1');
         $a->updateSettings('t1', 'c 1', ['invoice', 'payment'], 3);
         $a->listRecords('t1', 'c 1', 'customer', cursor: 'n2', limit: 50);
+        $a->referenceOptions('t1', 'c 1', 'deposit_account', limit: 25);
         $a->matchRecords('t1', 'c 1', 'item', [['erp_id' => 'I1', 'name' => 'Consulting']]);
         $a->bindRecords('t1', 'c 1', 'customer', [['erp_id' => 'C1', 'provider_ref' => '58']]);
 
@@ -158,6 +244,7 @@ final class AccountingTest extends TestCase
             ['GET', $c . '/settings?tenant_id=t1'],
             ['PUT', $c . '/settings'],
             ['GET', $c . '/records/customer?tenant_id=t1&cursor=n2&limit=50'],
+            ['GET', $c . '/reference-data/deposit_account/options?tenant_id=t1&limit=25'],
             ['POST', $c . '/records/item/match'],
             ['POST', $c . '/records/customer/bind'],
         ], array_map(fn(int $i) => [$transport->requests[$i]->getMethod(), $transport->target($i)], array_keys($transport->requests)));

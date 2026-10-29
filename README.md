@@ -195,8 +195,9 @@ use Ezee\IntegrationRuntime\Accounting;
 $accounting = new Accounting($client);
 
 // Build once and persist with the ERP invoice before the first attempt.
+// Pass the connection id: a retried request stays bound to the company it was first sent to.
 $request = Accounting::buildRequest(
-    'accounting.invoice.create', $tenantId, 'INV-00042', 'invoice:INV-00042:create', $payload,
+    'accounting.invoice.create', $tenantId, 'INV-00042', 'invoice:INV-00042:create', $payload, $connectionId,
 );
 $receipt = $accounting->submit($request);             // same array on every retry
 $status = $accounting->status($tenantId, $receipt->jobId);
@@ -210,8 +211,24 @@ if ($status['status'] === 'completed') {
 | Writes | `upsertCustomer`, `upsertItem`, `createInvoice`, `updateInvoice`, `voidInvoice`, `createPayment`, `createRefund`, `createCreditMemo`, `applyCreditMemo` (`OPERATIONS` lists the keys) |
 | Results | `status` (neutral result), `refresh` (fresh provider read of an invoice or payment) |
 | Connection | `providers`, `connectionId` (the tenant's one accounting connection) |
-| Onboarding | `listRecords`, `matchRecords`, `bindRecords` (customers, items, tax codes); `referenceData` (one record by exact id or name), `getMapping`, `setMapping`, `deleteMapping` (codes); `settings`, `updateSettings` |
+| Onboarding | `listRecords`, `matchRecords`, `bindRecords` (customers, items, tax codes); `referenceOptions` (a page of choices for a mapping dropdown), `referenceData` (one record by exact id or name), `getMapping`, `setMapping`, `deleteMapping` (codes); `settings`, `updateSettings` |
 | Migration | `link` (ERP line ids of an invoice created through `QuickBooks`) |
+
+Errors throw `RuntimeProblemException`. Branch on `decision()`; for neutral
+`accounting.*` codes it returns the action from `accounting-operations.md`
+"Errors":
+
+| `decision()` | Do |
+| --- | --- |
+| `fix_setup` | Fix the connection setup (mapping, record-type setting, link, connection), then `submit()` the same saved request. |
+| `review_and_resubmit` | The document cannot be written as sent. Refresh it, have a person review it, and send the corrected document as a new business event (new key). |
+| `do_not_sync` | Outside what the connection syncs; keep it in the ERP only. |
+| `retry_same_request` | Wait (`retryAfterSeconds`), then `submit()` the same request. |
+| `fix_request` | Correct the input and resend. |
+| `ask_operator` | A release gate refused it. Do not loop. |
+| `stop_and_reconcile` | Identity conflict or uncertain outcome. Never mint a new key. |
+
+New values may be added; treat an unknown one as `stop_and_reconcile`.
 
 ## QuickBooks operations (typed, deprecated)
 
@@ -584,8 +601,9 @@ mis-canonicalized method produces.
 
 ## What this SDK does NOT do (yet)
 
-- Typed helpers cover customer mapping, QuickBooks operations, jobs,
-  connections and webhooks. Other endpoints (calendar, dry-run mapping,
+- Typed helpers cover customer mapping, provider-neutral accounting
+  (`Accounting`), the deprecated QuickBooks operations, jobs, connections and
+  webhooks. Other endpoints (calendar, dry-run mapping,
   disconnect, usage) use the signed transport.
 - Transport retries cover `429` only — no replay of transport exceptions or `5xx`,
   deliberately (see [Retrying 429s](#retrying-429s)).

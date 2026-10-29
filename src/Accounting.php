@@ -259,7 +259,7 @@ final class Accounting
      * Look up one provider record of a mapping kind (tax code, payment method,
      * account) by its exact provider id or exact name, e.g. to confirm the
      * record an admin picked before {@see setMapping()}. Pass exactly one of
-     * `$providerRef` or `$name`; this is not a listing.
+     * `$providerRef` or `$name`. To offer a list, use {@see referenceOptions()}.
      *
      * @return array<string, mixed>
      */
@@ -272,6 +272,23 @@ final class Accounting
         return ResponseReader::json($this->client->send('GET', ResponseReader::query(
             self::connectionPath($connectionId) . '/reference-data/' . rawurlencode($kind),
             ['tenant_id' => $tenantId, 'provider_ref' => $providerRef, 'name' => $name],
+        )));
+    }
+
+    /**
+     * One page of the provider records a code kind (payment_method,
+     * deposit_account, refund_account, income_account) can point at, for an
+     * ERP mapping dropdown (`items` with kind, provider_ref, name, active, email;
+     * `next_cursor`). Only records the write path accepts for the kind are
+     * listed. Inactive records are included; offer only active ones.
+     *
+     * @return array<string, mixed>
+     */
+    public function referenceOptions(string $tenantId, string $connectionId, string $kind, ?string $cursor = null, ?int $limit = null): array
+    {
+        return ResponseReader::json($this->client->send('GET', ResponseReader::query(
+            self::connectionPath($connectionId) . '/reference-data/' . rawurlencode($kind) . '/options',
+            ['tenant_id' => $tenantId, 'cursor' => $cursor, 'limit' => $limit],
         )));
     }
 
@@ -331,8 +348,10 @@ final class Accounting
     }
 
     /**
-     * One page of provider customers, items or tax codes for onboarding, with
-     * the ERP id each is bound to. Pass the returned cursor for the next page.
+     * One page of provider customers, items or tax codes for onboarding
+     * (`records` with provider_ref, name, active, email, sku; `next_cursor`).
+     * Inactive records are included. It does not say which ERP id a record
+     * is bound to; {@see matchRecords()} candidates carry `bound_erp_id`.
      *
      * @return array<string, mixed>
      */
