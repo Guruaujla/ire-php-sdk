@@ -134,6 +134,7 @@ final class AccountingTest extends TestCase
         yield 'idempotency' => [409, 'accounting.idempotency_conflict', RuntimeProblemException::STOP_AND_RECONCILE];
         yield 'in progress' => [409, 'accounting.operation_in_progress', RuntimeProblemException::RETRY_SAME_REQUEST];
         yield 'link conflict' => [409, 'accounting.link_conflict', RuntimeProblemException::STOP_AND_RECONCILE];
+        yield 'write uncertain' => [409, 'accounting.write_uncertain', RuntimeProblemException::STOP_AND_RECONCILE];
         yield 'disabled' => [403, 'accounting.operation_disabled', RuntimeProblemException::ASK_OPERATOR];
         yield 'unknown 409' => [409, 'accounting.something_new', RuntimeProblemException::STOP_AND_RECONCILE];
         yield 'unknown 422' => [422, 'accounting.something_new', RuntimeProblemException::STOP_AND_RECONCILE];
