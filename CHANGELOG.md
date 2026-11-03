@@ -2,6 +2,14 @@
 
 Releases are published to `Guruaujla/ire-php-sdk` as `v` tags.
 
+## Unreleased
+
+- `RuntimeProblemException::decision()` returns `stop_and_reconcile` for
+  `accounting.refund_incomplete` (a Xero refund whose credit note is written
+  and whose cash refund is not): resume it with the same `erp_id`, a new key
+  and the identical body, or ask the operator; never resubmit it under a new
+  `erp_id`.
+
 ## 1.3.1
 
 - `RuntimeProblemException::decision()` now returns the documented action

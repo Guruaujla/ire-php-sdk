@@ -87,6 +87,7 @@ final class RuntimeProblemException extends \RuntimeException
         'accounting.idempotency_conflict' => self::STOP_AND_RECONCILE,
         'accounting.link_conflict' => self::STOP_AND_RECONCILE,
         'accounting.write_uncertain' => self::STOP_AND_RECONCILE,
+        'accounting.refund_incomplete' => self::STOP_AND_RECONCILE,
     ];
 
     /**
