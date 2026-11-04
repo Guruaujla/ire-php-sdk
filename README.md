@@ -17,21 +17,13 @@ client (Guzzle, Symfony HttpClient's PSR-18 adapter, ...).
 
 ## Install
 
-This package is **not published to Packagist**. It is mirrored to the private
+This package is **not published to Packagist**. It is mirrored to the public
 repository [`Guruaujla/ire-php-sdk`](https://github.com/Guruaujla/ire-php-sdk),
-tagged by release. Install from there with a Composer `vcs` repository and a
-GitHub token that can read it:
-
-```json
-{
-    "repositories": [
-        { "type": "vcs", "url": "https://github.com/Guruaujla/ire-php-sdk" }
-    ]
-}
-```
+tagged by release. Install from there with a Composer `vcs` repository (no
+token needed):
 
 ```bash
-composer config --global github-oauth.github.com <token>
+composer config repositories.ire-php-sdk vcs https://github.com/Guruaujla/ire-php-sdk
 composer require 'ezee/integration-runtime-sdk:^1.0' 'guzzlehttp/guzzle:^7.15'
 ```
 
