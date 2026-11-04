@@ -10,6 +10,13 @@ Releases are published to `Guruaujla/ire-php-sdk` as `v` tags.
   and the identical body, or ask the operator; never resubmit it under a new
   `erp_id`.
 
+## 1.3.2
+
+- `RuntimeProblemException::decision()` maps `accounting.write_uncertain`
+  explicitly to `stop_and_reconcile` (the write may have reached the provider
+  unconfirmed; never resend it). 1.3.1 already returned the same action
+  through the unknown-`accounting.*` default, so behavior is unchanged.
+
 ## 1.3.1
 
 - `RuntimeProblemException::decision()` now returns the documented action
