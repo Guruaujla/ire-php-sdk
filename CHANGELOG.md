@@ -4,6 +4,11 @@ Releases are published to `Guruaujla/ire-php-sdk` as `v` tags.
 
 ## Unreleased
 
+- `WebhookEvent` accepts `quickbooks.transaction.status_changed` (its
+  `data.transaction` is on the new `$transaction` property) and any event type
+  this version does not know yet, instead of rejecting the delivery as
+  `payload_shape_invalid`. Before this, an endpoint subscribed to all events
+  answered 401 to every QuickBooks transaction delivery.
 - `RuntimeProblemException::decision()` returns `stop_and_reconcile` for
   `accounting.refund_incomplete` (a Xero refund whose credit note is written
   and whose cash refund is not): resume it with the same `erp_id`, a new key

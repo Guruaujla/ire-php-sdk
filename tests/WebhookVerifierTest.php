@@ -94,6 +94,37 @@ final class WebhookVerifierTest extends TestCase
         ]);
     }
 
+    public function testParsesTheQuickBooksTransactionEvent(): void
+    {
+        $body = [
+            'schema_version' => 1, 'delivery_id' => 'd2', 'event_id' => 'e2:quickbooks.transaction.status_changed',
+            'event_type' => 'quickbooks.transaction.status_changed', 'occurred_at' => '2026-10-28T10:00:00.000Z',
+            'app_id' => 'app_erp', 'tenant_id' => 't1', 'callback_epoch' => 1,
+            'data' => ['transaction' => ['connection_id' => 'c1', 'entity_type' => 'Invoice', 'external_id' => '42']],
+        ];
+        $event = WebhookEvent::fromArray($body);
+        self::assertSame(['connection_id' => 'c1', 'entity_type' => 'Invoice', 'external_id' => '42'], $event->transaction);
+        self::assertSame([], $event->job);
+        self::assertSame([], $event->document);
+
+        unset($body['data']['transaction']);
+        $this->expectExceptionMessage('data.transaction');
+        WebhookEvent::fromArray($body);
+    }
+
+    public function testAcceptsAnEventTypeThisVersionDoesNotKnow(): void
+    {
+        $event = WebhookEvent::fromArray([
+            'delivery_id' => 'd3', 'event_id' => 'e3', 'event_type' => 'connection.status_changed', 'occurred_at' => 'x',
+            'app_id' => 'a', 'tenant_id' => 't', 'data' => ['connection' => ['id' => 'c1']],
+        ]);
+        self::assertSame('connection.status_changed', $event->eventType);
+        self::assertSame([], $event->job);
+        $data = $event->payload['data'];
+        self::assertIsArray($data);
+        self::assertSame(['id' => 'c1'], $data['connection']);
+    }
+
     public function testSelectsTheSecretByEndpointKeyDuringRotation(): void
     {
         $f = self::fixture();

@@ -6,8 +6,11 @@ namespace Ezee\IntegrationRuntime;
 
 /**
  * A verified delivery (schema_version 1): a `sync_job.*` event with
- * {@see $job}, or `accounting.document.status_changed` with
- * {@see $document}. Dedupe on {@see $deliveryId}; route on {@see $tenantId}.
+ * {@see $job}, `accounting.document.status_changed` with {@see $document},
+ * or `quickbooks.transaction.status_changed` with {@see $transaction}. An
+ * event type this SDK version does not know yet is still accepted (forward
+ * compatible): read it from {@see $payload}. Dedupe on {@see $deliveryId};
+ * route on {@see $tenantId}.
  * `job` is a snapshot at `occurred_at`; GET the job when ordering or current
  * state matters.
  */
@@ -15,10 +18,13 @@ final readonly class WebhookEvent
 {
     public const ACCOUNTING_DOCUMENT_STATUS_CHANGED = 'accounting.document.status_changed';
 
+    public const QUICKBOOKS_TRANSACTION_STATUS_CHANGED = 'quickbooks.transaction.status_changed';
+
     /**
      * @param array<string, mixed> $job      `data.sync_job`; empty for an accounting document event
      * @param array<string, mixed> $payload  the full verified body
      * @param array<string, mixed> $document `data.document` of an accounting document event; empty otherwise
+     * @param array<string, mixed> $transaction `data.transaction` of a QuickBooks transaction event; empty otherwise
      */
     public function __construct(
         public string $deliveryId,
@@ -30,6 +36,7 @@ final readonly class WebhookEvent
         public array $job,
         public array $payload,
         public array $document = [],
+        public array $transaction = [],
     ) {}
 
     /** @param array<string, mixed> $body */
@@ -44,26 +51,35 @@ final readonly class WebhookEvent
             $strings[$key] = $value;
         }
         $data = $body['data'] ?? null;
-        $isDocument = $strings['event_type'] === self::ACCOUNTING_DOCUMENT_STATUS_CHANGED;
-        $section = is_array($data) ? ($data[$isDocument ? 'document' : 'sync_job'] ?? null) : null;
-        if (! is_array($section)) {
-            throw new \UnexpectedValueException('Webhook payload is missing data.' . ($isDocument ? 'document' : 'sync_job'));
-        }
+        $type = $strings['event_type'];
+        $sectionName = match (true) {
+            $type === self::ACCOUNTING_DOCUMENT_STATUS_CHANGED => 'document',
+            $type === self::QUICKBOOKS_TRANSACTION_STATUS_CHANGED => 'transaction',
+            str_starts_with($type, 'sync_job.') => 'sync_job',
+            default => null,
+        };
         $normalized = [];
-        foreach ($section as $key => $value) {
-            $normalized[(string) $key] = $value;
+        if ($sectionName !== null) {
+            $section = is_array($data) ? ($data[$sectionName] ?? null) : null;
+            if (! is_array($section)) {
+                throw new \UnexpectedValueException('Webhook payload is missing data.' . $sectionName);
+            }
+            foreach ($section as $key => $value) {
+                $normalized[(string) $key] = $value;
+            }
         }
 
         return new self(
             $strings['delivery_id'],
             $strings['event_id'],
-            $strings['event_type'],
+            $type,
             $strings['occurred_at'],
             $strings['app_id'],
             $strings['tenant_id'],
-            $isDocument ? [] : $normalized,
+            $sectionName === 'sync_job' ? $normalized : [],
             $body,
-            $isDocument ? $normalized : [],
+            $sectionName === 'document' ? $normalized : [],
+            $sectionName === 'transaction' ? $normalized : [],
         );
     }
 
