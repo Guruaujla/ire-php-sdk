@@ -2,7 +2,7 @@
 
 Releases are published to `Guruaujla/ire-php-sdk` as `v` tags.
 
-## Unreleased
+## 1.3.3
 
 - `WebhookEvent` accepts `quickbooks.transaction.status_changed` (its
   `data.transaction` is on the new `$transaction` property) and any event type
