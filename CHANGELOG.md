@@ -2,7 +2,7 @@
 
 Releases are published to `Guruaujla/ire-php-sdk` as `v` tags.
 
-## Unreleased (1.3.4)
+## 1.3.4
 
 - `examples/signed-read/run.php` also runs from an application that installed
   the SDK: `php vendor/ezee/integration-runtime-sdk/examples/signed-read/run.php`
