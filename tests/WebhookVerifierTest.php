@@ -112,6 +112,50 @@ final class WebhookVerifierTest extends TestCase
         WebhookEvent::fromArray($body);
     }
 
+    public function testParsesTheConnectionEvents(): void
+    {
+        foreach (WebhookEvent::CONNECTION_EVENTS as $type) {
+            $connection = ['id' => 'conn_1', 'provider_key' => 'xero', 'status' => substr($type, strlen('connection.')), 'previous_status' => 'connected', 'reason' => null];
+            $body = [
+                'schema_version' => 1, 'delivery_id' => 'd4', 'event_id' => 'connection:0190d3c4-8e21-7f3a-9b64-2c1f5a8e4d07',
+                'event_type' => $type, 'occurred_at' => '2026-11-09T12:00:00.005Z',
+                'app_id' => 'app_erp', 'tenant_id' => 't1', 'data' => ['connection' => $connection],
+            ];
+            $event = WebhookEvent::fromArray($body);
+            self::assertTrue($event->isConnectionEvent());
+            self::assertSame($connection, $event->connection);
+            self::assertSame('conn_1', $event->connectionId());
+            self::assertSame('xero', $event->connectionProviderKey());
+            self::assertSame($connection['status'], $event->connectionStatus());
+            self::assertSame([], $event->job);
+            self::assertSame([], $event->document);
+            self::assertSame([], $event->transaction);
+        }
+        self::assertSame('reconnect_required', WebhookEvent::fromArray([
+            'delivery_id' => 'd5', 'event_id' => 'e5', 'event_type' => WebhookEvent::CONNECTION_RECONNECT_REQUIRED,
+            'occurred_at' => 'x', 'app_id' => 'a', 'tenant_id' => 't',
+            'data' => ['connection' => ['id' => 'c', 'provider_key' => 'quickbooks', 'status' => 'reconnect_required', 'previous_status' => 'connected', 'reason' => 'invalid_grant']],
+        ])->connectionStatus());
+
+        $this->expectExceptionMessage('data.connection');
+        WebhookEvent::fromArray([
+            'delivery_id' => 'd6', 'event_id' => 'e6', 'event_type' => WebhookEvent::CONNECTION_DISCONNECTED,
+            'occurred_at' => 'x', 'app_id' => 'a', 'tenant_id' => 't', 'data' => [],
+        ]);
+    }
+
+    public function testTheTestEventIsAcceptedWithNoSection(): void
+    {
+        $event = WebhookEvent::fromArray([
+            'schema_version' => 1, 'delivery_id' => 'd7', 'event_id' => 'webhook.test:x', 'event_type' => WebhookEvent::WEBHOOK_TEST,
+            'occurred_at' => 'x', 'app_id' => 'a', 'tenant_id' => 't',
+            'data' => ['test' => ['endpoint_key' => 'primary', 'requested_by' => 'developer']],
+        ]);
+        self::assertFalse($event->isConnectionEvent());
+        self::assertSame([], $event->connection);
+        self::assertNull($event->connectionId());
+    }
+
     public function testAcceptsAnEventTypeThisVersionDoesNotKnow(): void
     {
         $event = WebhookEvent::fromArray([

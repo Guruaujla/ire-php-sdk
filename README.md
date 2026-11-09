@@ -191,6 +191,18 @@ Xero needs the operator to add the app's Xero provider configuration first.
 A customer has one accounting provider at a time: a second one is refused
 `409 accounting.connection_exists` until the first is disconnected.
 
+**Reconnect (1.5.0 or later).** When a `connection.reconnect_required` webhook
+arrives (or a read shows `status === 'reconnect_required'`), start a new
+session for the same tenant and provider. `reconnect()` reads the connection's
+`provider_key` and calls `start()`:
+
+```php
+$session = $connections->reconnect($tenantId, $connectionId, $returnUrl, $state);
+```
+
+Start it when the person clicks your Reconnect button, never ahead of time in
+an email (the `authorize_url` expires). The webhook guide has the full recipe.
+
 ## Accounting (provider-neutral)
 
 `Accounting` is the integration to use for new code. It takes ERP ids, ERP
@@ -289,8 +301,8 @@ recorded version on every retry.
 | --- | --- |
 | `QuickBooks` | `createInvoice`, `updateInvoice`, `voidInvoice`, `createPayment`, `createRefund`, `createCreditMemo`, `applyCreditMemo`, `upsertMaster`, plus `findMaster`, `getMasterMapping`, `status`. `OPERATIONS` holds the fixed recipe identities. |
 | `Jobs` | `get(pollingUrl)`, `find`, `list`, and `wait`, which only ever re-reads and never resubmits. |
-| `Connections` | `start` (connect session; optional `$providerKey`: `'quickbooks'`, the default, or `'xero'` from 1.4.0), `get`, `list`. |
-| `WebhookVerifier` | Verifies `sync_job.*` deliveries against the raw target and raw body. Returns a `WebhookEvent`; dedupe on `deliveryId`. |
+| `Connections` | `start` (connect session; optional `$providerKey`: `'quickbooks'`, the default, or `'xero'` from 1.4.0), `reconnect` (1.5.0), `get`, `list`. |
+| `WebhookVerifier` | Verifies deliveries against the raw target and raw body. Returns a `WebhookEvent`; dedupe on `deliveryId`. From 1.5.0 a `connection.*` event has its `data.connection` on `$event->connection` (with `connectionId()`, `connectionStatus()`, `connectionProviderKey()`, `isConnectionEvent()`). |
 | `RuntimeProblemException` | `problemCode`, `requestId`, `retryAfterSeconds`, and `decision()` mapped from the documented HTTP decision table. |
 
 ## Usage

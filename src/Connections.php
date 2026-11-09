@@ -57,6 +57,30 @@ final class Connections
         ];
     }
 
+    /**
+     * Start a connect session that reconnects an existing connection: the
+     * answer to a `connection.reconnect_required` webhook. Reads the
+     * connection (one signed GET) for its `provider_key`, then calls
+     * {@see start()} for the same tenant and provider; the runtime reconnects
+     * the tenant's existing connection. Redirect the user to `authorize_url`
+     * exactly as for a first connect.
+     *
+     * @param string $state one-time, unpredictable value you stored server-side for this attempt
+     * @return array{session_id: string, authorize_url: string, expires_at: int, connection_id: string|null}
+     */
+    public function reconnect(string $tenantId, string $connectionId, string $returnUrl, string $state): array
+    {
+        ResponseReader::requireNonEmpty('returnUrl', $returnUrl);
+        ResponseReader::requireNonEmpty('state', $state);
+        $connection = $this->get($tenantId, $connectionId);
+        $providerKey = $connection['provider_key'] ?? null;
+        if (! is_string($providerKey) || ! in_array($providerKey, self::PROVIDER_KEYS, true)) {
+            throw new \UnexpectedValueException('Connection ' . $connectionId . ' has no provider_key this SDK can reconnect.');
+        }
+
+        return $this->start($tenantId, $returnUrl, $state, $providerKey);
+    }
+
     /** @return array<string, mixed> authoritative connection state; use only `status === 'connected'` */
     public function get(string $tenantId, string $connectionId): array
     {

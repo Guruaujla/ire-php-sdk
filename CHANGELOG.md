@@ -2,6 +2,25 @@
 
 Releases are published to `Guruaujla/ire-php-sdk` as `v` tags.
 
+## 1.5.0
+
+- `WebhookEvent` parses the `connection.connected`,
+  `connection.reconnect_required` and `connection.disconnected` events: their
+  `data.connection` (`id`, `provider_key`, `status`, `previous_status`,
+  `reason`) is on the new `$connection` property, a delivery without it is
+  rejected as `payload_shape_invalid`, and `connectionId()` returns the
+  connection id for these events too. New helpers `isConnectionEvent()`,
+  `connectionStatus()` and `connectionProviderKey()`, and constants
+  `CONNECTION_CONNECTED`, `CONNECTION_RECONNECT_REQUIRED`,
+  `CONNECTION_DISCONNECTED`, `CONNECTION_EVENTS` and `WEBHOOK_TEST`. In 1.4.0
+  and earlier (from 1.3.3) these events are accepted as unknown types, with the
+  body on `$payload` only.
+- `Connections::reconnect($tenantId, $connectionId, $returnUrl, $state)` reads
+  the connection (one signed GET) and starts a connect session for the same
+  tenant and its `provider_key`: the answer to `connection.reconnect_required`.
+  A connection whose provider this SDK cannot connect throws
+  `\UnexpectedValueException` before a session is started.
+
 ## 1.4.0
 
 - `Connections::start()` takes an optional fourth argument, `$providerKey`:

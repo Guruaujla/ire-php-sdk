@@ -144,6 +144,33 @@ final class JobsAndConnectionsTest extends TestCase
         self::assertSame(['tenant_id' => 't1', 'provider_key' => 'quickbooks', 'return_url' => 'https://erp.example.com/xero/return', 'state' => 'state-456'], $transport->body(1));
     }
 
+    public function testReconnectReadsTheProviderAndStartsASessionForTheSameTenant(): void
+    {
+        $transport = new ScriptedTransport([
+            Clients::json(200, ['id' => 'conn_x', 'provider_key' => 'xero', 'status' => 'reconnect_required', 'connected_at' => 1, 'created_at' => 1, 'updated_at' => 2]),
+            Clients::json(201, ['session_id' => '0190d3c4-8e21-7f3a-9b64-2c1f5a8e4d0a', 'authorize_url' => 'https://login.xero.com/identity/connect/authorize?x=2', 'expires_at' => 1, 'connection_id' => 'conn_x']),
+        ]);
+        $session = (new Connections(Clients::client($transport)))->reconnect('t1', 'conn_x', 'https://erp.example.com/reconnect/return', 'state-789');
+        self::assertSame('/v1/connections/conn_x?tenant_id=t1', $transport->target(0));
+        self::assertSame('/v1/connections/connect-session', $transport->target(1));
+        self::assertSame(['tenant_id' => 't1', 'provider_key' => 'xero', 'return_url' => 'https://erp.example.com/reconnect/return', 'state' => 'state-789'], $transport->body(1));
+        self::assertSame('conn_x', $session['connection_id']);
+    }
+
+    public function testReconnectRefusesAProviderItCannotConnect(): void
+    {
+        $transport = new ScriptedTransport([
+            Clients::json(200, ['id' => 'g1', 'provider_key' => 'google-calendar', 'status' => 'reconnect_required']),
+        ]);
+        try {
+            (new Connections(Clients::client($transport)))->reconnect('t1', 'g1', 'https://erp.example.com/r', 's');
+            self::fail('expected UnexpectedValueException');
+        } catch (\UnexpectedValueException $e) {
+            self::assertStringContainsString('provider_key', $e->getMessage());
+        }
+        self::assertCount(1, $transport->requests);
+    }
+
     public function testConnectRefusesAnUnknownProviderBeforeSending(): void
     {
         $transport = new ScriptedTransport([]);

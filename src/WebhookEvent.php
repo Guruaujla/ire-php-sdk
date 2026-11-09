@@ -7,7 +7,8 @@ namespace Ezee\IntegrationRuntime;
 /**
  * A verified delivery (schema_version 1): a `sync_job.*` event with
  * {@see $job}, `accounting.document.status_changed` with {@see $document},
- * or `quickbooks.transaction.status_changed` with {@see $transaction}. An
+ * `quickbooks.transaction.status_changed` with {@see $transaction}, or a
+ * `connection.*` event with {@see $connection}. An
  * event type this SDK version does not know yet is still accepted (forward
  * compatible): read it from {@see $payload}. Dedupe on {@see $deliveryId};
  * route on {@see $tenantId}.
@@ -20,11 +21,25 @@ final readonly class WebhookEvent
 
     public const QUICKBOOKS_TRANSACTION_STATUS_CHANGED = 'quickbooks.transaction.status_changed';
 
+    public const CONNECTION_CONNECTED = 'connection.connected';
+
+    public const CONNECTION_RECONNECT_REQUIRED = 'connection.reconnect_required';
+
+    public const CONNECTION_DISCONNECTED = 'connection.disconnected';
+
+    /** The `connection.*` event types this SDK version knows. */
+    public const CONNECTION_EVENTS = [self::CONNECTION_CONNECTED, self::CONNECTION_RECONNECT_REQUIRED, self::CONNECTION_DISCONNECTED];
+
+    /** Sent only when an app owner asks for a test event; acknowledge it and do nothing else. */
+    public const WEBHOOK_TEST = 'webhook.test';
+
     /**
      * @param array<string, mixed> $job      `data.sync_job`; empty for an accounting document event
      * @param array<string, mixed> $payload  the full verified body
      * @param array<string, mixed> $document `data.document` of an accounting document event; empty otherwise
      * @param array<string, mixed> $transaction `data.transaction` of a QuickBooks transaction event; empty otherwise
+     * @param array<string, mixed> $connection `data.connection` of a `connection.*` event
+     *   (id, provider_key, status, previous_status, reason); empty otherwise
      */
     public function __construct(
         public string $deliveryId,
@@ -37,6 +52,7 @@ final readonly class WebhookEvent
         public array $payload,
         public array $document = [],
         public array $transaction = [],
+        public array $connection = [],
     ) {}
 
     /** @param array<string, mixed> $body */
@@ -55,6 +71,7 @@ final readonly class WebhookEvent
         $sectionName = match (true) {
             $type === self::ACCOUNTING_DOCUMENT_STATUS_CHANGED => 'document',
             $type === self::QUICKBOOKS_TRANSACTION_STATUS_CHANGED => 'transaction',
+            in_array($type, self::CONNECTION_EVENTS, true) => 'connection',
             str_starts_with($type, 'sync_job.') => 'sync_job',
             default => null,
         };
@@ -80,12 +97,16 @@ final readonly class WebhookEvent
             $body,
             $sectionName === 'document' ? $normalized : [],
             $sectionName === 'transaction' ? $normalized : [],
+            $sectionName === 'connection' ? $normalized : [],
         );
     }
 
-    /** The accounting connection of an accounting document event. */
+    /** The connection of an accounting document event or a `connection.*` event. */
     public function connectionId(): ?string
     {
+        if (isset($this->connection['id']) && is_string($this->connection['id'])) {
+            return $this->connection['id'];
+        }
         $data = $this->payload['data'] ?? null;
 
         return is_array($data) && isset($data['connection_id']) && is_string($data['connection_id']) ? $data['connection_id'] : null;
@@ -97,6 +118,24 @@ final readonly class WebhookEvent
         $data = $this->payload['data'] ?? null;
 
         return is_array($data) && isset($data['sequence']) && is_int($data['sequence']) ? $data['sequence'] : null;
+    }
+
+    /** True for `connection.connected`, `connection.reconnect_required` and `connection.disconnected`. */
+    public function isConnectionEvent(): bool
+    {
+        return in_array($this->eventType, self::CONNECTION_EVENTS, true);
+    }
+
+    /** `data.connection.status` of a `connection.*` event: connected, reconnect_required or disconnected. */
+    public function connectionStatus(): ?string
+    {
+        return isset($this->connection['status']) && is_string($this->connection['status']) ? $this->connection['status'] : null;
+    }
+
+    /** `data.connection.provider_key` of a `connection.*` event, e.g. quickbooks or xero. */
+    public function connectionProviderKey(): ?string
+    {
+        return isset($this->connection['provider_key']) && is_string($this->connection['provider_key']) ? $this->connection['provider_key'] : null;
     }
 
     public function jobId(): ?string
