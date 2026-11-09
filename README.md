@@ -172,6 +172,25 @@ authoritative status. PHP/Python provide the same mapping helper behavior; their
 HTTP-client and runtime prerequisites above still apply. Native OAuth and human
 usability acceptance remain unverified.
 
+## Connect an accounting provider
+
+`Connections::start()` starts the connect session and returns the
+`authorize_url` to redirect the admin to. It connects QuickBooks unless you
+pass the provider (1.4.0 or later):
+
+```php
+use Ezee\IntegrationRuntime\Connections;
+
+$connections = new Connections($client);
+$session = $connections->start($tenantId, $returnUrl, $state);           // QuickBooks
+$session = $connections->start($tenantId, $returnUrl, $state, 'xero');   // Xero
+// On return: check $state, then require get(...)['status'] === 'connected'.
+```
+
+Xero needs the operator to add the app's Xero provider configuration first.
+A customer has one accounting provider at a time: a second one is refused
+`409 accounting.connection_exists` until the first is disconnected.
+
 ## Accounting (provider-neutral)
 
 `Accounting` is the integration to use for new code. It takes ERP ids, ERP
@@ -270,7 +289,7 @@ recorded version on every retry.
 | --- | --- |
 | `QuickBooks` | `createInvoice`, `updateInvoice`, `voidInvoice`, `createPayment`, `createRefund`, `createCreditMemo`, `applyCreditMemo`, `upsertMaster`, plus `findMaster`, `getMasterMapping`, `status`. `OPERATIONS` holds the fixed recipe identities. |
 | `Jobs` | `get(pollingUrl)`, `find`, `list`, and `wait`, which only ever re-reads and never resubmits. |
-| `Connections` | `start` (connect session), `get`, `list`. |
+| `Connections` | `start` (connect session; optional `$providerKey`: `'quickbooks'`, the default, or `'xero'` from 1.4.0), `get`, `list`. |
 | `WebhookVerifier` | Verifies `sync_job.*` deliveries against the raw target and raw body. Returns a `WebhookEvent`; dedupe on `deliveryId`. |
 | `RuntimeProblemException` | `problemCode`, `requestId`, `retryAfterSeconds`, and `decision()` mapped from the documented HTTP decision table. |
 

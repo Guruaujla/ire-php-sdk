@@ -7,7 +7,7 @@ namespace Ezee\IntegrationRuntime;
 use Ezee\IntegrationRuntime\Internal\ResponseReader;
 
 /**
- * Native QuickBooks connections for one runtime tenant.
+ * Native accounting connections (QuickBooks or Xero) for one runtime tenant.
  *
  * Flow: {@see start()} -> redirect the user to `authorize_url` -> the runtime
  * redirects back to your `return_url` with `status`, `connection_id` and your
@@ -16,20 +16,28 @@ use Ezee\IntegrationRuntime\Internal\ResponseReader;
  */
 final class Connections
 {
+    /** The providers the public connect-session endpoint accepts. */
+    public const PROVIDER_KEYS = ['quickbooks', 'xero'];
+
     public function __construct(private readonly Client $client) {}
 
     /**
      * @param string $state one-time, unpredictable value you stored server-side for this attempt
+     * @param string $providerKey 'quickbooks' (the default) or 'xero'; Xero needs the
+     *   operator to add the app's Xero provider configuration first
      * @return array{session_id: string, authorize_url: string, expires_at: int, connection_id: string|null}
      */
-    public function start(string $tenantId, string $returnUrl, string $state): array
+    public function start(string $tenantId, string $returnUrl, string $state, string $providerKey = 'quickbooks'): array
     {
         ResponseReader::requireNonEmpty('tenantId', $tenantId);
         ResponseReader::requireNonEmpty('returnUrl', $returnUrl);
         ResponseReader::requireNonEmpty('state', $state);
+        if (! in_array($providerKey, self::PROVIDER_KEYS, true)) {
+            throw new \InvalidArgumentException('providerKey must be one of ' . implode(', ', self::PROVIDER_KEYS));
+        }
         $body = ResponseReader::json($this->client->send('POST', '/v1/connections/connect-session', [
             'tenant_id' => $tenantId,
-            'provider_key' => 'quickbooks',
+            'provider_key' => $providerKey,
             'return_url' => $returnUrl,
             'state' => $state,
         ]), [200, 201]);

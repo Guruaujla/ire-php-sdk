@@ -2,6 +2,15 @@
 
 Releases are published to `Guruaujla/ire-php-sdk` as `v` tags.
 
+## 1.4.0
+
+- `Connections::start()` takes an optional fourth argument, `$providerKey`:
+  `'quickbooks'` (the default) or `'xero'`. Existing calls send the same
+  request body as before. `Connections::PROVIDER_KEYS` lists the accepted
+  values; any other value throws `\InvalidArgumentException` before a request
+  is sent. A Xero connect needs the operator to add the app's Xero provider
+  configuration first (otherwise `403 authz.provider_not_enabled`).
+
 ## 1.3.4
 
 - `examples/signed-read/run.php` also runs from an application that installed

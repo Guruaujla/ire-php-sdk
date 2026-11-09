@@ -127,4 +127,32 @@ final class JobsAndConnectionsTest extends TestCase
         self::assertSame('/v1/connections/c1?tenant_id=t1', $transport->target(1));
         self::assertSame('/v1/connections?tenant_id=t1&limit=10', $transport->target(2));
     }
+
+    public function testConnectSendsXeroWhenAskedAndTheSameBodyOtherwise(): void
+    {
+        $transport = new ScriptedTransport([
+            Clients::json(201, ['session_id' => '0190d3c4-8e21-7f3a-9b64-2c1f5a8e4d08', 'authorize_url' => 'https://login.xero.com/identity/connect/authorize?x=1', 'expires_at' => 1, 'connection_id' => null]),
+            Clients::json(201, ['session_id' => '0190d3c4-8e21-7f3a-9b64-2c1f5a8e4d09', 'authorize_url' => 'https://appcenter.intuit.com/connect/oauth2?x=1', 'expires_at' => 1, 'connection_id' => null]),
+        ]);
+        $connections = new Connections(Clients::client($transport));
+        $session = $connections->start('t1', 'https://erp.example.com/xero/return', 'state-456', 'xero');
+        self::assertSame('https://login.xero.com/identity/connect/authorize?x=1', $session['authorize_url']);
+        self::assertSame(['tenant_id' => 't1', 'provider_key' => 'xero', 'return_url' => 'https://erp.example.com/xero/return', 'state' => 'state-456'], $transport->body(0));
+        self::assertSame('/v1/connections/connect-session', $transport->target(0));
+        // Passing the default explicitly sends exactly the default's body.
+        $connections->start('t1', 'https://erp.example.com/xero/return', 'state-456', 'quickbooks');
+        self::assertSame(['tenant_id' => 't1', 'provider_key' => 'quickbooks', 'return_url' => 'https://erp.example.com/xero/return', 'state' => 'state-456'], $transport->body(1));
+    }
+
+    public function testConnectRefusesAnUnknownProviderBeforeSending(): void
+    {
+        $transport = new ScriptedTransport([]);
+        try {
+            (new Connections(Clients::client($transport)))->start('t1', 'https://erp.example.com/r', 's', 'sage');
+            self::fail('expected InvalidArgumentException');
+        } catch (\InvalidArgumentException $e) {
+            self::assertStringContainsString('quickbooks, xero', $e->getMessage());
+        }
+        self::assertSame([], $transport->requests);
+    }
 }
