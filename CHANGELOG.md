@@ -2,6 +2,15 @@
 
 Releases are published to `Guruaujla/ire-php-sdk` as `v` tags.
 
+## Unreleased (1.3.4)
+
+- `examples/signed-read/run.php` also runs from an application that installed
+  the SDK: `php vendor/ezee/integration-runtime-sdk/examples/signed-read/run.php`
+  uses the application's `vendor/autoload.php`. It needs Guzzle, which every
+  Laravel app has, and reports `starter.dependencies_missing` without it.
+  In 1.3.3 and earlier it looks only in the SDK's own `vendor/`.
+- No changes to `src/`.
+
 ## 1.3.3
 
 - `WebhookEvent` accepts `quickbooks.transaction.status_changed` (its

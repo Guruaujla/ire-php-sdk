@@ -10,6 +10,17 @@ composer --working-dir=sdks/php install --no-interaction
 php sdks/php/examples/signed-read/run.php
 ```
 
+The example also ships in the installed package. From an application that
+requires `ezee/integration-runtime-sdk` (directly or through
+`ezee/laravel-integration-runtime`) and has Guzzle (every Laravel app does),
+run it against the application's own `vendor/autoload.php`. This needs SDK
+1.3.4 or later (earlier versions only look in the SDK's own `vendor/`):
+
+```sh
+composer require ezee/integration-runtime-sdk:^1.3.4 -W
+php vendor/ezee/integration-runtime-sdk/examples/signed-read/run.php
+```
+
 Privately inject `IR_BASE_URL`, `IR_APP_ID`, `IR_KEY_ID`,
 `IR_SERVICE_KEY_SECRET` and `IR_TENANT_ID` into the backend environment.
 Keep the secret out of browser code, prompts, committed files and logs.
