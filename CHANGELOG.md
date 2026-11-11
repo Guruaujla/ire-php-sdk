@@ -2,6 +2,14 @@
 
 Releases are published to `Guruaujla/ire-php-sdk` as `v` tags.
 
+## 1.5.1
+
+- No code changes. The `Accounting::bindRecords()` docblock notes that a row
+  refused with `accounting.mapping_conflict` because the ERP id is already
+  bound to another record carries that record as `bound_provider_ref`, and
+  that after a reconnect an ERP id can be bound again to a different record.
+  Both are runtime behaviours; any SDK version returns the field.
+
 ## 1.5.0
 
 - `WebhookEvent` parses the `connection.connected`,
