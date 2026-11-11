@@ -43,6 +43,9 @@ final class Accounting
     /** Provider record types the onboarding list, match and bind cover. */
     public const RECORD_ENTITIES = ['customer', 'item', 'tax_code'];
 
+    /** Record types {@see startSnapshot()} and {@see latestSnapshot()} accept. */
+    public const SNAPSHOT_ENTITIES = ['customer', 'item'];
+
     public function __construct(private readonly Client $client) {}
 
     /**
@@ -353,13 +356,20 @@ final class Accounting
      * Inactive records are included. It does not say which ERP id a record
      * is bound to; {@see matchRecords()} candidates carry `bound_erp_id`.
      *
+     * `$source`: `live` (the default) pages the provider; `snapshot` pages a
+     * ready snapshot ({@see startSnapshot()}), in name order. Records read
+     * from a snapshot carry no email or SKU (null). `$q` searches a ready
+     * snapshot of customers or items: an exact email on customers when it
+     * contains `@`, otherwise a name prefix (at least 3 characters). A
+     * cursor only works with the source that issued it.
+     *
      * @return array<string, mixed>
      */
-    public function listRecords(string $tenantId, string $connectionId, string $entity, ?string $cursor = null, ?int $limit = null): array
+    public function listRecords(string $tenantId, string $connectionId, string $entity, ?string $cursor = null, ?int $limit = null, ?string $source = null, ?string $q = null): array
     {
         return ResponseReader::json($this->client->send('GET', ResponseReader::query(
             self::recordsPath($connectionId, $entity),
-            ['tenant_id' => $tenantId, 'cursor' => $cursor, 'limit' => $limit],
+            ['tenant_id' => $tenantId, 'cursor' => $cursor, 'limit' => $limit, 'source' => $source, 'q' => $q],
         )));
     }
 
@@ -367,12 +377,24 @@ final class Accounting
      * Find the provider record for each ERP record (by email, SKU or name).
      * `matched` is safe to bind; `suggested` needs a person to choose.
      *
+     * `$source` (customers and items): `auto` (the server default) matches
+     * against a ready snapshot under 24 hours old, up to 1,000 records per
+     * call, and otherwise the provider (up to 100 per call); while a
+     * snapshot is still being pulled it answers 409
+     * `accounting.snapshot_not_ready`. `snapshot` and `live` force one source.
+     * The response names the `source` it used and the snapshot's `as_of`.
+     *
      * @param list<array<string, mixed>> $records each {erp_id, name, email?, sku?}
      * @return array<string, mixed>
      */
-    public function matchRecords(string $tenantId, string $connectionId, string $entity, array $records): array
+    public function matchRecords(string $tenantId, string $connectionId, string $entity, array $records, ?string $source = null): array
     {
-        return ResponseReader::json($this->client->send('POST', self::recordsPath($connectionId, $entity) . '/match', ['tenant_id' => $tenantId, 'records' => $records]));
+        $body = ['tenant_id' => $tenantId, 'records' => $records];
+        if ($source !== null) {
+            $body['source'] = $source;
+        }
+
+        return ResponseReader::json($this->client->send('POST', self::recordsPath($connectionId, $entity) . '/match', $body));
     }
 
     /**
@@ -390,6 +412,80 @@ final class Accounting
         return ResponseReader::json($this->client->send('POST', self::recordsPath($connectionId, $entity) . '/bind', ['tenant_id' => $tenantId, 'bindings' => $bindings]));
     }
 
+    /**
+     * Start a snapshot: a background job that reads every customer or item
+     * from the provider once, so matching and searching read it instead of
+     * the provider. Returns the running snapshot if there is one, or a ready
+     * unexpired one, unless `$refresh` is true (allowed once per 15 minutes
+     * per connection and record type). The job's `sync_job.completed`
+     * webhook fires when it is ready, or `sync_job.dead_lettered` when the
+     * pull failed ({@see latestSnapshot()} then shows `failed` with
+     * `error_code`). Match against it with `$source = 'snapshot'`: `auto`
+     * uses it only while `as_of` is under 24 hours old. Customers and items
+     * only.
+     *
+     * @return array<string, mixed> {snapshot_id, entity, status, job_id, record_count, provider_calls, waiting_on, as_of, expires_at, created_at, error_code}
+     */
+    public function startSnapshot(string $tenantId, string $connectionId, string $entity, bool $refresh = false): array
+    {
+        $body = ['tenant_id' => $tenantId];
+        if ($refresh) {
+            $body['refresh'] = true;
+        }
+
+        return ResponseReader::json($this->client->send('POST', self::snapshotPath($connectionId, $entity), $body), [200, 202]);
+    }
+
+    /**
+     * The latest snapshot for this connection and record type. Treat a
+     * status other than `ready` as not ready. 404
+     * `accounting.snapshot_not_found` when none was taken.
+     *
+     * @return array<string, mixed> same shape as {@see startSnapshot()}
+     */
+    public function latestSnapshot(string $tenantId, string $connectionId, string $entity): array
+    {
+        return ResponseReader::json($this->client->send('GET', ResponseReader::query(
+            self::snapshotPath($connectionId, $entity) . '/latest',
+            ['tenant_id' => $tenantId],
+        )));
+    }
+
+    /**
+     * Bind up to 5,000 customers or items in one background job. Every row
+     * is verified with the provider and stored like {@see bindRecords()};
+     * each row succeeds or fails on its own. One bind job runs per
+     * connection at a time. The job's `sync_job.completed` (or
+     * `sync_job.dead_lettered`) webhook fires when it ends; then read
+     * {@see bindJobResults()}.
+     *
+     * @param list<array<string, mixed>> $bindings each {erp_id, provider_ref}
+     * @return array<string, mixed> {job_id, entity, status, row_count, bound_count, refused_count, not_attempted_count, provider_calls, waiting_on, error_code, created_at, ended_at}
+     */
+    public function startBindJob(string $tenantId, string $connectionId, string $entity, array $bindings): array
+    {
+        return ResponseReader::json($this->client->send('POST', self::recordsPath($connectionId, $entity) . '/bind-jobs', ['tenant_id' => $tenantId, 'bindings' => $bindings]), [202]);
+    }
+
+    /**
+     * One page (up to 500 rows, request order) of a bind job's results,
+     * with the job's counts and status. Each row is `bound`, `refused`
+     * (with `code`, and `bound_provider_ref` on a `mapping_conflict`) or
+     * `not_attempted` (send it again in a new job). Follow `next_cursor`
+     * until it is null. Results are kept 7 days after the job ends.
+     *
+     * @return array<string, mixed>
+     */
+    public function bindJobResults(string $tenantId, string $connectionId, string $entity, string $jobId, ?string $cursor = null): array
+    {
+        ResponseReader::requireNonEmpty('jobId', $jobId);
+
+        return ResponseReader::json($this->client->send('GET', ResponseReader::query(
+            self::recordsPath($connectionId, $entity) . '/bind-jobs/' . rawurlencode($jobId) . '/results',
+            ['tenant_id' => $tenantId, 'cursor' => $cursor],
+        )));
+    }
+
     private static function connectionPath(string $connectionId): string
     {
         ResponseReader::requireNonEmpty('connectionId', $connectionId);
@@ -402,6 +498,16 @@ final class Accounting
         ResponseReader::requireNonEmpty('erpCode', $erpCode);
 
         return self::connectionPath($connectionId) . '/mappings/' . rawurlencode($kind) . '/' . rawurlencode($erpCode);
+    }
+
+    /** Snapshots cover customers and items only. */
+    private static function snapshotPath(string $connectionId, string $entity): string
+    {
+        if (! in_array($entity, self::SNAPSHOT_ENTITIES, true)) {
+            throw new \InvalidArgumentException('entity must be one of ' . implode(', ', self::SNAPSHOT_ENTITIES));
+        }
+
+        return self::recordsPath($connectionId, $entity) . '/snapshots';
     }
 
     private static function recordsPath(string $connectionId, string $entity): string

@@ -2,6 +2,26 @@
 
 Releases are published to `Guruaujla/ire-php-sdk` as `v` tags.
 
+## 1.6.0
+
+- Bulk onboarding for large customer and item lists (customers and items;
+  QuickBooks and Xero), all on `Accounting`:
+  - `startSnapshot($tenantId, $connectionId, $entity, $refresh = false)` and
+    `latestSnapshot(...)`: read every provider customer or item once in a
+    background job (`customer` or `item`, `Accounting::SNAPSHOT_ENTITIES`;
+    other values throw `\InvalidArgumentException` before sending).
+  - `matchRecords(..., $source = null)`: `auto` (server default), `snapshot`
+    or `live`. Against a ready snapshot a call takes up to 1,000 records.
+  - `listRecords(..., $source = null, $q = null)`: page a snapshot, or search
+    it by exact email or name prefix.
+  - `startBindJob($tenantId, $connectionId, $entity, $bindings)` binds up to
+    5,000 pairs in a background job; `bindJobResults(..., $jobId, $cursor)`
+    pages its per-row results.
+- The `listRecords()` docblock notes that records read from a snapshot carry
+  no email or SKU.
+- Snapshots and bind jobs are off until the runtime operator enables them
+  for the app.
+
 ## 1.5.1
 
 - No code changes. The `Accounting::bindRecords()` docblock notes that a row

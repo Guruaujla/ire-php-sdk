@@ -234,7 +234,7 @@ if ($status['status'] === 'completed') {
 | Writes | `upsertCustomer`, `upsertItem`, `createInvoice`, `updateInvoice`, `voidInvoice`, `createPayment`, `createRefund`, `createCreditMemo`, `applyCreditMemo` (`OPERATIONS` lists the keys) |
 | Results | `status` (neutral result), `refresh` (fresh provider read of an invoice or payment) |
 | Connection | `providers`, `connectionId` (the tenant's one accounting connection) |
-| Onboarding | `listRecords`, `matchRecords`, `bindRecords` (customers, items, tax codes); `referenceOptions` (a page of choices for a mapping dropdown), `referenceData` (one record by exact id or name), `getMapping`, `setMapping`, `deleteMapping` (codes); `settings`, `updateSettings` |
+| Onboarding | `listRecords`, `matchRecords`, `bindRecords` (customers, items, tax codes); `startSnapshot`, `latestSnapshot`, `startBindJob`, `bindJobResults` (large customer and item lists); `referenceOptions` (a page of choices for a mapping dropdown), `referenceData` (one record by exact id or name), `getMapping`, `setMapping`, `deleteMapping` (codes); `settings`, `updateSettings` |
 | Migration | `link` (ERP line ids of an invoice created through `QuickBooks`) |
 
 Errors throw `RuntimeProblemException`. Branch on `decision()`; for neutral
