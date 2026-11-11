@@ -82,6 +82,8 @@ final class RuntimeProblemException extends \RuntimeException
         'accounting.snapshot_conflict' => self::RETRY_SAME_REQUEST,
         'accounting.snapshot_unsupported' => self::FIX_REQUEST,
         'accounting.snapshot_not_found' => self::FIX_REQUEST,
+        'accounting.snapshot_not_ready' => self::RETRY_SAME_REQUEST,
+        'accounting.match_too_many' => self::FIX_REQUEST,
         'accounting.mapping_conflict' => self::FIX_REQUEST,
         'accounting.reference_invalid' => self::FIX_REQUEST,
         'accounting.unsupported_change' => self::FIX_REQUEST,
