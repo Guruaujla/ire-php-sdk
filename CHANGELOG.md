@@ -2,7 +2,7 @@
 
 Releases are published to `Guruaujla/ire-php-sdk` as `v` tags.
 
-## 1.6.1 (unreleased)
+## 1.6.1
 
 - `Jobs::get()` and `Jobs::wait()` accept the `polling_url` that
   `Accounting::submit()` (and every `Accounting` write) returns,
