@@ -14,13 +14,16 @@ final class ScriptedTransport implements ClientInterface
     /** @var list<RequestInterface> */
     public array $requests = [];
 
-    /** @param list<ResponseInterface> $script */
+    /** @param list<ResponseInterface|\Throwable> $script a \Throwable entry is thrown in place of a response */
     public function __construct(private array $script) {}
 
     public function sendRequest(RequestInterface $request): ResponseInterface
     {
         $this->requests[] = $request;
         $next = array_shift($this->script);
+        if ($next instanceof \Throwable) {
+            throw $next;
+        }
         if (! $next instanceof ResponseInterface) {
             throw new \LogicException('Unexpected request ' . $request->getMethod() . ' ' . $request->getUri());
         }

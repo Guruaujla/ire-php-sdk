@@ -4,12 +4,17 @@ declare(strict_types=1);
 
 namespace Ezee\IntegrationRuntime\Tests;
 
+use Ezee\IntegrationRuntime\Client;
 use Ezee\IntegrationRuntime\Connections;
 use Ezee\IntegrationRuntime\Exception\RuntimeProblemException;
 use Ezee\IntegrationRuntime\Jobs;
+use Ezee\IntegrationRuntime\RetryPolicy;
 use Ezee\IntegrationRuntime\SyncJob;
 use Ezee\IntegrationRuntime\Tests\Support\Clients;
+use Ezee\IntegrationRuntime\Tests\Support\RequestFailure;
 use Ezee\IntegrationRuntime\Tests\Support\ScriptedTransport;
+use Ezee\IntegrationRuntime\Tests\Support\TransportFailure;
+use GuzzleHttp\Psr7\HttpFactory;
 use PHPUnit\Framework\Attributes\CoversClass;
 use PHPUnit\Framework\TestCase;
 
@@ -99,6 +104,131 @@ final class JobsAndConnectionsTest extends TestCase
     {
         $this->expectException(\InvalidArgumentException::class);
         (new Jobs(Clients::client(new ScriptedTransport([]))))->get('https://elsewhere.example/v1/sync-jobs/x');
+    }
+
+    public function testGetAndWaitAcceptTheAccountingPollingUrl(): void
+    {
+        $transport = new ScriptedTransport([
+            Clients::json(200, self::job('processing')),
+            Clients::json(200, self::job('queued')),
+            Clients::json(200, self::job('completed', '1042')),
+        ]);
+        $jobs = new Jobs(Clients::client($transport), static function (float $s): void {});
+        $accounting = '/v1/accounting/operations/job_1?tenant_id=t1';
+
+        self::assertFalse($jobs->get($accounting)->isTerminal());
+        self::assertTrue($jobs->wait($accounting, 600)->isCompleted());
+        self::assertCount(3, $transport->requests);
+        foreach (array_keys($transport->requests) as $i) {
+            self::assertSame('GET', $transport->requests[$i]->getMethod());
+            self::assertSame(self::URL, $transport->target($i));
+        }
+    }
+
+    public function testAccountingPollingUrlKeepsTheJobIdEncoded(): void
+    {
+        $transport = new ScriptedTransport([Clients::json(200, self::job('completed'))]);
+        (new Jobs(Clients::client($transport)))->get('/v1/accounting/operations/job%201?tenant_id=t%2F1');
+        self::assertSame('/v1/sync-jobs/job%201?tenant_id=t%2F1', $transport->target(0));
+    }
+
+    /** @return iterable<string, array{string}> */
+    public static function malformedAccountingUrls(): iterable
+    {
+        yield 'no tenant' => ['/v1/accounting/operations/job_1'];
+        yield 'empty tenant' => ['/v1/accounting/operations/job_1?tenant_id='];
+        yield 'no job id' => ['/v1/accounting/operations/?tenant_id=t1'];
+        yield 'nested path' => ['/v1/accounting/operations/job_1/x?tenant_id=t1'];
+        yield 'other route' => ['/v1/accounting/providers?tenant_id=t1'];
+        yield 'dot segment' => ['/v1/accounting/operations/.?tenant_id=t1'];
+        yield 'encoded dot-dot segment' => ['/v1/accounting/operations/%2e%2e?tenant_id=t1'];
+    }
+
+    #[\PHPUnit\Framework\Attributes\DataProvider('malformedAccountingUrls')]
+    public function testMalformedAccountingPollingUrlsAreRefusedBeforeSending(string $url): void
+    {
+        $transport = new ScriptedTransport([]);
+        try {
+            (new Jobs(Clients::client($transport)))->wait($url);
+            self::fail('expected the URL to be refused');
+        } catch (\InvalidArgumentException) {
+        }
+        self::assertSame([], $transport->requests);
+    }
+
+    public function testWaitKeepsPollingThroughTransportFailures(): void
+    {
+        $transport = new ScriptedTransport([
+            new TransportFailure('connection reset'),
+            Clients::json(200, self::job('processing')),
+            new TransportFailure('timeout'),
+            Clients::json(200, self::job('completed', '1042')),
+        ]);
+        $slept = [];
+        $jobs = new Jobs(Clients::client($transport), static function (float $s) use (&$slept): void {
+            $slept[] = $s;
+        });
+
+        self::assertTrue($jobs->wait(self::URL, 600)->isCompleted());
+        self::assertCount(4, $transport->requests);
+        self::assertCount(3, $slept);
+    }
+
+    public function testWaitRethrowsADeterministicRequestFailureAtOnce(): void
+    {
+        $transport = new ScriptedTransport([
+            Clients::json(200, self::job('processing')),
+            new RequestFailure('malformed request'),
+        ]);
+        $jobs = new Jobs(Clients::client($transport), static function (float $s): void {});
+        $this->expectException(RequestFailure::class);
+        $jobs->wait(self::URL, 600);
+    }
+
+    public function testWaitSurfacesATransportFailureWhenItCannotWaitAndHasNoRead(): void
+    {
+        $transport = new ScriptedTransport([new TransportFailure('connection refused')]);
+        $this->expectException(TransportFailure::class);
+        (new Jobs(Clients::client($transport), static function (float $s): void {}))->wait(self::URL, 0);
+    }
+
+    public function testWaitReturnsTheLastReadWhenATransportFailureHitsTheDeadline(): void
+    {
+        $transport = new ScriptedTransport([
+            Clients::json(200, self::job('processing')),
+            new TransportFailure('timeout'),
+        ]);
+        $jobs = new Jobs(Clients::client($transport), static function (float $s): void {});
+        $job = $jobs->wait(self::URL, 3, 2.0);
+        self::assertFalse($job->isTerminal());
+        self::assertCount(2, $transport->requests);
+    }
+
+    public function testWaitDoesNotSleepInsideTheClientOnA429(): void
+    {
+        $transport = new ScriptedTransport([
+            Clients::json(429, ['code' => 'rate_limit.quota_exceeded'], ['Retry-After' => '60']),
+        ]);
+        $clientSlept = [];
+        $factory = new HttpFactory();
+        // A client with 429 retries ON: wait() must not let it sleep 60s
+        // inside one request past a 1s deadline.
+        $client = new Client($transport, $factory, $factory, 'https://runtime.example.invalid', 'app_erp', 'key_test', Clients::SECRET, new RetryPolicy(), static function (float $s) use (&$clientSlept): void {
+            $clientSlept[] = $s;
+        });
+        $waitSlept = [];
+        $jobs = new Jobs($client, static function (float $s) use (&$waitSlept): void {
+            $waitSlept[] = $s;
+        });
+        try {
+            $jobs->wait(self::URL, 1);
+            self::fail('expected the 429 to surface');
+        } catch (RuntimeProblemException $e) {
+            self::assertSame(429, $e->httpStatus);
+        }
+        self::assertSame([], $clientSlept);
+        self::assertSame([], $waitSlept);
+        self::assertCount(1, $transport->requests);
     }
 
     public function testFindAndListScopeByTenant(): void

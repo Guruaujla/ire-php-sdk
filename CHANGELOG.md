@@ -2,6 +2,29 @@
 
 Releases are published to `Guruaujla/ire-php-sdk` as `v` tags.
 
+## 1.6.1 (unreleased)
+
+- `Jobs::get()` and `Jobs::wait()` accept the `polling_url` that
+  `Accounting::submit()` (and every `Accounting` write) returns,
+  `/v1/accounting/operations/{job_id}?tenant_id=…`, and read the sync job with
+  the same ID in the same tenant. In 1.6.0 and earlier they threw
+  `\InvalidArgumentException` for it. Any other URL (including a `.` or `..`
+  job id) is still refused before a request is sent. When the job is
+  terminal, call `Accounting::status()` once: that read returns the neutral
+  result and links the created document for later updates.
+- `Jobs::wait()` polls with the client's 429 retries off
+  (`Client::withoutRetry()`), so a long `Retry-After` is waited out against
+  the deadline instead of sleeping inside one request past it. A PSR-18
+  network failure (`NetworkExceptionInterface`) on a read is now waited out
+  like a 429 or 5xx until the deadline; when there is no successful read to
+  return by then, it is rethrown. Other PSR-18 errors (a malformed request)
+  are thrown at once.
+- `OperationReceipt` has a new nullable `$idempotentReplay` (from
+  `idempotent_replay`; `null` when the response does not carry a boolean). The
+  constructor argument is optional, so existing calls are unchanged.
+- README: the `Accounting` example waits with `Jobs::wait()`, and the Guzzle
+  example sets `timeout` 15, `connect_timeout` 5 and `allow_redirects` false.
+
 ## 1.6.0
 
 - Bulk onboarding for large customer and item lists (customers and items;

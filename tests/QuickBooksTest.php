@@ -74,6 +74,17 @@ final class QuickBooksTest extends TestCase
         self::assertSame('erp_payment_pay-1', $body['idempotency_key']);
     }
 
+    public function testReceiptCarriesIdempotentReplayOnlyWhenItIsABoolean(): void
+    {
+        $base = ['job_id' => 'j', 'polling_url' => '/v1/sync-jobs/j?tenant_id=t', 'status' => 'queued'];
+        self::assertTrue(OperationReceipt::fromArray([...$base, 'idempotent_replay' => true])->idempotentReplay);
+        self::assertFalse(OperationReceipt::fromArray([...$base, 'idempotent_replay' => false])->idempotentReplay);
+        self::assertNull(OperationReceipt::fromArray($base)->idempotentReplay);
+        self::assertNull(OperationReceipt::fromArray([...$base, 'idempotent_replay' => 'true'])->idempotentReplay);
+        // Positional construction from 1.6.0 and earlier still compiles.
+        self::assertNull((new OperationReceipt('j', '/v1/sync-jobs/j', 'queued', null))->idempotentReplay);
+    }
+
     public function testMasterUpsertDerivesTheDocumentedKey(): void
     {
         $transport = new ScriptedTransport([Clients::json(202, ['job_id' => 'j', 'polling_url' => '/v1/sync-jobs/j?tenant_id=t', 'status' => 'queued'])]);

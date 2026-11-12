@@ -213,7 +213,7 @@ operation: `accounting-operations.md` and `.json` in the Laravel package's
 `docs/` folder, with `accounting-migration.md` for code that uses `QuickBooks`.
 
 ```php
-use Ezee\IntegrationRuntime\Accounting;
+use Ezee\IntegrationRuntime\{Accounting, Jobs};
 
 $accounting = new Accounting($client);
 
@@ -223,11 +223,24 @@ $request = Accounting::buildRequest(
     'accounting.invoice.create', $tenantId, 'INV-00042', 'invoice:INV-00042:create', $payload, $connectionId,
 );
 $receipt = $accounting->submit($request);             // same array on every retry
-$status = $accounting->status($tenantId, $receipt->jobId);
-if ($status['status'] === 'completed') {
-    $revision = $status['result']['revision'];        // send back on the next write
+// Persist $receipt->jobId and $receipt->pollingUrl with the ERP invoice.
+
+// Wait for the job: only re-reads, never resubmits. From 1.6.1 Jobs accepts
+// the accounting polling_url (/v1/accounting/operations/{id}?tenant_id=…).
+$job = (new Jobs($client))->wait($receipt->pollingUrl, timeoutSeconds: 60);
+if ($job->isTerminal()) {
+    $status = $accounting->status($tenantId, $receipt->jobId);
+    if ($status['status'] === 'completed') {
+        $revision = $status['result']['revision'];    // send back on the next write
+    }
 }
 ```
+
+`Jobs::wait()` polls with the client's 429 retries off, so a `Retry-After` is
+waited out against your deadline, and it keeps polling through a `429`, a `5xx`
+or a transport failure until the deadline. If the job is still running at the
+deadline it returns the last read: keep the polling URL and check again later
+(or wait for the `sync_job.completed` webhook).
 
 | Method | Covers |
 | --- | --- |
@@ -300,7 +313,7 @@ recorded version on every retry.
 | Class | Covers |
 | --- | --- |
 | `QuickBooks` | `createInvoice`, `updateInvoice`, `voidInvoice`, `createPayment`, `createRefund`, `createCreditMemo`, `applyCreditMemo`, `upsertMaster`, plus `findMaster`, `getMasterMapping`, `status`. `OPERATIONS` holds the fixed recipe identities. |
-| `Jobs` | `get(pollingUrl)`, `find`, `list`, and `wait`, which only ever re-reads and never resubmits. |
+| `Jobs` | `get(pollingUrl)`, `find`, `list`, and `wait`, which only ever re-reads and never resubmits. `get` and `wait` take a sync-jobs `polling_url` or, from 1.6.1, an accounting one. |
 | `Connections` | `start` (connect session; optional `$providerKey`: `'quickbooks'`, the default, or `'xero'` from 1.4.0), `reconnect` (1.5.0), `get`, `list`. |
 | `WebhookVerifier` | Verifies deliveries against the raw target and raw body. Returns a `WebhookEvent`; dedupe on `deliveryId`. From 1.5.0 a `connection.*` event has its `data.connection` on `$event->connection` (with `connectionId()`, `connectionStatus()`, `connectionProviderKey()`, `isConnectionEvent()`). |
 | `RuntimeProblemException` | `problemCode`, `requestId`, `retryAfterSeconds`, and `decision()` mapped from the documented HTTP decision table. |
@@ -352,7 +365,9 @@ With Guzzle (which implements PSR-18 and PSR-17):
 use Ezee\IntegrationRuntime\Client;
 
 $client = new Client(
-    new \GuzzleHttp\Client(),
+    // Always bound the transport. Recommended: a 15 s total timeout, a 5 s
+    // connect timeout, and no redirects (a signed request must not follow one).
+    new \GuzzleHttp\Client(['timeout' => 15, 'connect_timeout' => 5, 'allow_redirects' => false]),
     new \GuzzleHttp\Psr7\HttpFactory(),   // PSR-17 request factory
     new \GuzzleHttp\Psr7\HttpFactory(),   // PSR-17 stream factory
     'https://staging.integrationengine.ca',

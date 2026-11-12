@@ -65,9 +65,11 @@ final class AccountingTest extends TestCase
         ]);
         $accounting = new Accounting(Clients::client($transport));
         $receipt = $accounting->createPayment('t1', 'PAY-1', 'payment:PAY-1', ['payment' => ['amount' => '1.00']]);
-        $accounting->createInvoice('t1', 'INV-1', 'invoice:INV-1', ['invoice' => []], connectionId: 'c1');
+        $second = $accounting->createInvoice('t1', 'INV-1', 'invoice:INV-1', ['invoice' => []], connectionId: 'c1');
 
         self::assertSame('job_1', $receipt->jobId);
+        self::assertFalse($receipt->idempotentReplay);
+        self::assertNull($second->idempotentReplay);
         self::assertSame('/v1/accounting/operations/job_1?tenant_id=t1', $receipt->pollingUrl);
         self::assertSame('/v1/accounting/operations', $transport->target(0));
         self::assertSame(
