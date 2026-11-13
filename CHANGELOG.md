@@ -2,6 +2,11 @@
 
 Releases are published to `Guruaujla/ire-php-sdk` as `v` tags.
 
+## Unreleased
+
+- `decision()` maps the new `accounting.invoice_has_payment` (a void of an
+  invoice with a payment or credit applied) to `review_and_resubmit`.
+
 ## 1.8.0
 
 - No code changes; results and reads are pass-through arrays, so the new
