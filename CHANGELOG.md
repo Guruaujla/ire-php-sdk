@@ -2,7 +2,7 @@
 
 Releases are published to `Guruaujla/ire-php-sdk` as `v` tags.
 
-## 1.7.0 (unreleased)
+## 1.7.0
 
 - `Connections::disconnect($tenantId, $connectionId, $idempotencyKey,
   $providerAccountId = null)` calls `POST /v1/connections/{id}/disconnect`. It
