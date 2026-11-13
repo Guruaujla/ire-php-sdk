@@ -2,6 +2,26 @@
 
 Releases are published to `Guruaujla/ire-php-sdk` as `v` tags.
 
+## Unreleased (1.8.0)
+
+- No code changes; results and reads are pass-through arrays, so the new
+  fields arrive with no upgrade. Invoice create and update results
+  (`Accounting::status()` `result`) now carry `tax_lines`: the tax the
+  provider stored, in the `expected_totals.tax_lines` shape. Store them with
+  `net_amount`, `total_tax`, `total_amount` and `revision`, and send them
+  back unchanged as the next update's `before.totals`.
+- `Accounting::refresh()` for an invoice also returns `net_amount`,
+  `total_tax` and `tax_lines` from the live read, to backfill `before.totals`
+  for invoices created before results carried `tax_lines`.
+- Runtime behaviour documented in `accounting-operations.md`: a QuickBooks
+  invoice with payments can now be updated when every link is a Payment and
+  the new total is at least the amount paid; a paid, part-paid or credited
+  Xero invoice takes only due date and line description changes. Other
+  changes are `accounting.unsupported_change` (decision `fix_request`). A
+  payment made through the runtime no longer blocks a later update once it
+  has completed or failed. A QuickBooks update that leaves the invoice fully paid
+  returns `balance` `0.00` and no `status`.
+
 ## 1.7.0
 
 - `Connections::disconnect($tenantId, $connectionId, $idempotencyKey,

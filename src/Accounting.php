@@ -216,7 +216,9 @@ final class Accounting
 
     /**
      * A document's current provider state from a fresh provider read: its new
-     * `revision`, `status`, `total_amount` and `balance`. Use it after
+     * `revision`, `status`, `total_amount` and `balance`, and for an invoice
+     * `net_amount`, `total_tax` and `tax_lines` (the `before.totals` shape;
+     * `tax_lines` is null when a rate is not mapped). Use it after
      * accounting.revision_conflict or to pick up a payment made elsewhere.
      *
      * @return array<string, mixed>
