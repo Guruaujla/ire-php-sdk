@@ -154,10 +154,10 @@ final class ConnectionStatusExampleTest extends TestCase
         self::assertNotFalse($schemaStart);
         self::assertNotFalse($schemaEnd);
         $schema = substr($openApi, (int) $schemaStart, (int) $schemaEnd - (int) $schemaStart);
-        foreach (['id:', 'provider_key:', 'status:', 'connected_at:', 'created_at:', 'updated_at:'] as $field) {
+        foreach (['id:', 'provider_key:', 'provider_account_id:', 'provider_account_name:', 'status:', 'connected_at:', 'created_at:', 'updated_at:'] as $field) {
             self::assertStringContainsString($field, $schema);
         }
-        foreach (['native_credential_id', 'scopes', 'provider_account_id', 'connected_by_user_id', 'provider_profile_id', 'is_sandbox'] as $forbidden) {
+        foreach (['native_credential_id', 'scopes', 'provider_account_label', 'connected_by_user_id', 'provider_profile_id', 'is_sandbox'] as $forbidden) {
             self::assertStringNotContainsString($forbidden, $schema);
         }
     }

@@ -95,7 +95,7 @@ final class Connections
      *
      * `$providerAccountId`: the company id (QuickBooks company or Xero tenant
      * id) you stored from {@see Accounting::providers()} `connection` when the
-     * connection was confirmed. Connection reads do not return it. When you
+     * connection was confirmed (connection reads also return it). When you
      * omit it, the SDK reads `providers()` (one more signed GET) and uses its
      * `connection` if it is this connection. That works only while this is the
      * tenant's one connected accounting connection, so pass the stored value
@@ -173,7 +173,7 @@ final class Connections
         if (! is_string($accountId) || $accountId === '') {
             throw new \UnexpectedValueException(
                 'Connection ' . $connectionId . ' is not the tenant\'s one connected accounting connection, so its provider_account_id '
-                . 'cannot be read; pass the provider_account_id you stored from providers() when the connection was confirmed.',
+                . 'cannot be read from providers(); pass the provider_account_id you stored when the connection was confirmed.',
             );
         }
 
