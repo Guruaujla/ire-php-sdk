@@ -312,4 +312,134 @@ final class JobsAndConnectionsTest extends TestCase
         }
         self::assertSame([], $transport->requests);
     }
+
+    /** @return array<string, mixed> */
+    private static function connection(string $id, string $providerKey, string $status = 'connected'): array
+    {
+        return ['id' => $id, 'provider_key' => $providerKey, 'status' => $status, 'connected_at' => 1, 'created_at' => 1, 'updated_at' => 2];
+    }
+
+    public function testDisconnectWithAStoredCompanyIdReadsTheProviderAndPostsTheDocumentedBody(): void
+    {
+        $transport = new ScriptedTransport([
+            Clients::json(200, self::connection('conn_q', 'quickbooks', 'reconnect_required')),
+            Clients::json(204, null),
+        ]);
+        $result = (new Connections(Clients::client($transport)))->disconnect('t1', 'conn_q', 'disconnect:k1', '9130350000000000');
+
+        self::assertSame(['provider_cleanup' => null], $result);
+        self::assertCount(2, $transport->requests);
+        self::assertSame('GET', $transport->requests[0]->getMethod());
+        self::assertSame('/v1/connections/conn_q?tenant_id=t1', $transport->target(0));
+        self::assertSame('POST', $transport->requests[1]->getMethod());
+        self::assertSame('/v1/connections/conn_q/disconnect', $transport->target(1));
+        self::assertSame([
+            'tenant_id' => 't1',
+            'provider_key' => 'quickbooks',
+            'provider_account_id' => '9130350000000000',
+            'idempotency_key' => 'disconnect:k1',
+        ], $transport->body(1));
+    }
+
+    public function testDisconnectWithoutACompanyIdReadsItFromProviders(): void
+    {
+        $transport = new ScriptedTransport([
+            Clients::json(200, self::connection('conn_x', 'xero')),
+            Clients::json(200, ['providers' => [], 'connection_state' => 'connected', 'connection' => ['connection_id' => 'conn_x', 'provider_key' => 'xero', 'provider_account_id' => 'xero-tenant-1']]),
+            Clients::json(204, null, ['X-IR-Provider-Cleanup' => 'customer_action_required']),
+        ]);
+        $result = (new Connections(Clients::client($transport)))->disconnect('t1', 'conn_x', 'disconnect:k2');
+
+        self::assertSame(['provider_cleanup' => 'customer_action_required'], $result);
+        self::assertSame('/v1/accounting/providers?tenant_id=t1', $transport->target(1));
+        self::assertSame('/v1/connections/conn_x/disconnect', $transport->target(2));
+        self::assertSame([
+            'tenant_id' => 't1',
+            'provider_key' => 'xero',
+            'provider_account_id' => 'xero-tenant-1',
+            'idempotency_key' => 'disconnect:k2',
+        ], $transport->body(2));
+    }
+
+    public function testDisconnectRefusesWhenProvidersNamesAnotherConnectionAndNothingWasStored(): void
+    {
+        $transport = new ScriptedTransport([
+            Clients::json(200, self::connection('conn_old', 'quickbooks')),
+            Clients::json(200, ['providers' => [], 'connection_state' => 'multiple', 'connection' => null]),
+        ]);
+        try {
+            (new Connections(Clients::client($transport)))->disconnect('t1', 'conn_old', 'disconnect:k3');
+            self::fail('expected UnexpectedValueException');
+        } catch (\UnexpectedValueException $e) {
+            self::assertStringContainsString('provider_account_id', $e->getMessage());
+        }
+        // No disconnect was sent.
+        self::assertCount(2, $transport->requests);
+
+        $other = new ScriptedTransport([
+            Clients::json(200, self::connection('conn_old', 'quickbooks')),
+            Clients::json(200, ['connection_state' => 'connected', 'connection' => ['connection_id' => 'conn_new', 'provider_key' => 'quickbooks', 'provider_account_id' => '1']]),
+        ]);
+        $this->expectException(\UnexpectedValueException::class);
+        try {
+            (new Connections(Clients::client($other)))->disconnect('t1', 'conn_old', 'disconnect:k3');
+        } finally {
+            self::assertCount(2, $other->requests);
+        }
+    }
+
+    public function testDisconnectMapsARefusalToARuntimeProblem(): void
+    {
+        $transport = new ScriptedTransport([
+            Clients::json(200, self::connection('conn_q', 'quickbooks')),
+            Clients::json(503, ['code' => 'oauth.disconnect_retryable', 'request_id' => 'req_1']),
+        ]);
+        try {
+            (new Connections(Clients::client($transport)))->disconnect('t1', 'conn_q', 'disconnect:k4', 'realm-1');
+            self::fail('expected RuntimeProblemException');
+        } catch (RuntimeProblemException $e) {
+            self::assertSame(503, $e->httpStatus);
+            self::assertSame('oauth.disconnect_retryable', $e->problemCode);
+            self::assertSame('req_1', $e->requestId);
+            self::assertSame(RuntimeProblemException::RETRY_SAME_REQUEST, $e->decision());
+        }
+
+        $busy = new ScriptedTransport([
+            Clients::json(200, self::connection('conn_q', 'quickbooks')),
+            Clients::json(409, ['code' => 'oauth.lifecycle_busy']),
+        ]);
+        try {
+            (new Connections(Clients::client($busy)))->disconnect('t1', 'conn_q', 'disconnect:k4', 'realm-1');
+            self::fail('expected RuntimeProblemException');
+        } catch (RuntimeProblemException $e) {
+            self::assertSame(409, $e->httpStatus);
+            self::assertSame('oauth.lifecycle_busy', $e->problemCode);
+            self::assertSame(RuntimeProblemException::RETRY_SAME_REQUEST, $e->decision());
+        }
+    }
+
+    public function testDisconnectValidatesBeforeSending(): void
+    {
+        $connections = new Connections(Clients::client($transport = new ScriptedTransport([])));
+        foreach ([['', 'c', 'k', null], ['t', '', 'k', null], ['t', 'c', ' ', null], ['t', 'c', str_repeat('k', 129), null], ['t', 'c', 'k', '']] as [$tenant, $connection, $key, $account]) {
+            try {
+                $connections->disconnect($tenant, $connection, $key, $account);
+                self::fail('expected InvalidArgumentException');
+            } catch (\InvalidArgumentException) {
+            }
+        }
+        self::assertSame([], $transport->requests);
+    }
+
+    public function testDisconnectRefusesAProviderItCannotDisconnect(): void
+    {
+        $transport = new ScriptedTransport([Clients::json(200, self::connection('g1', 'google-calendar'))]);
+        try {
+            (new Connections(Clients::client($transport)))->disconnect('t1', 'g1', 'disconnect:k5', 'acct');
+            self::fail('expected UnexpectedValueException');
+        } catch (\UnexpectedValueException $e) {
+            self::assertStringContainsString('provider_key', $e->getMessage());
+        }
+        self::assertCount(1, $transport->requests);
+    }
 }

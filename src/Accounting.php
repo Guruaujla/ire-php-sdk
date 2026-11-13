@@ -198,7 +198,8 @@ final class Accounting
     /**
      * The tenant's one active accounting connection id, for the per-connection
      * reads below. Throws when the tenant has none or several (writes are
-     * refused then too; disconnect the extra connection).
+     * refused then too; disconnect the extra connection with
+     * {@see Connections::disconnect()}, passing its stored provider_account_id).
      */
     public function connectionId(string $tenantId): string
     {

@@ -189,7 +189,8 @@ $session = $connections->start($tenantId, $returnUrl, $state, 'xero');   // Xero
 
 Xero needs the operator to add the app's Xero provider configuration first.
 A customer has one accounting provider at a time: a second one is refused
-`409 accounting.connection_exists` until the first is disconnected.
+`409 accounting.connection_exists` until the first is disconnected with
+`disconnect()` (below).
 
 **Reconnect (1.5.0 or later).** When a `connection.reconnect_required` webhook
 arrives (or a read shows `status === 'reconnect_required'`), start a new
@@ -202,6 +203,36 @@ $session = $connections->reconnect($tenantId, $connectionId, $returnUrl, $state)
 
 Start it when the person clicks your Reconnect button, never ahead of time in
 an email (the `authorize_url` expires). The webhook guide has the full recipe.
+
+**Disconnect (1.7.0 or later).** `disconnect()` calls
+`POST /v1/connections/{id}/disconnect`. It reads the connection's
+`provider_key` for you. Writes stop at once, so ask the admin to confirm first.
+Make a new idempotency key for each confirmed disconnect, store it, and reuse
+it only to retry that attempt:
+
+```php
+use Ezee\IntegrationRuntime\Exception\RuntimeProblemException;
+
+$key = $link->disconnect_key ??= 'disconnect:' . bin2hex(random_bytes(16)); // new per confirmed attempt
+$link->save();                                                                // store it before sending
+try {
+    $result = $connections->disconnect($tenantId, $connectionId, $key, $link->provider_account_id);
+    $link->disconnect_key = null;
+    // Done. $result['provider_cleanup'] === 'customer_action_required' only for a
+    // Xero disconnect that was local only: tell the admin to remove the app at
+    // https://apps.xero.com/connected.
+} catch (RuntimeProblemException $e) {
+    // oauth.lifecycle_busy (409) or oauth.disconnect_retryable (503): retry later
+    // with the same $key. connection.recovery_pending (409, Xero): ask the operator.
+}
+```
+
+The fourth argument is the company id (`provider_account_id`) you stored from
+`Accounting::providers()` when the connection was confirmed; connection reads
+do not return it. Leave it out and the SDK reads `providers()` for you, which
+works only while this is the tenant's one connected accounting connection. To
+disconnect an extra connection, one that needs a reconnect, or to retry, pass
+the stored value.
 
 ## Accounting (provider-neutral)
 

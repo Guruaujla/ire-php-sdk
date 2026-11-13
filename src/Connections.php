@@ -4,6 +4,7 @@ declare(strict_types=1);
 
 namespace Ezee\IntegrationRuntime;
 
+use Ezee\IntegrationRuntime\Exception\RuntimeProblemException;
 use Ezee\IntegrationRuntime\Internal\ResponseReader;
 
 /**
@@ -81,6 +82,69 @@ final class Connections
         return $this->start($tenantId, $returnUrl, $state, $providerKey);
     }
 
+    /**
+     * Disconnect one native accounting connection (QuickBooks or Xero):
+     * `POST /v1/connections/{id}/disconnect`. Writes for the connection stop
+     * at once, so ask the admin to confirm first. Reads the connection (one
+     * signed GET) for its `provider_key`.
+     *
+     * `$idempotencyKey`: make a new key for each disconnect the admin
+     * confirms and store it; reuse it only to retry that same attempt. An old
+     * key (for example from before a reconnect) returns the earlier result
+     * and disconnects nothing.
+     *
+     * `$providerAccountId`: the company id (QuickBooks company or Xero tenant
+     * id) you stored from {@see Accounting::providers()} `connection` when the
+     * connection was confirmed. Connection reads do not return it. When you
+     * omit it, the SDK reads `providers()` (one more signed GET) and uses its
+     * `connection` if it is this connection. That works only while this is the
+     * tenant's one connected accounting connection, so pass the stored value
+     * to disconnect an extra connection or one that needs a reconnect, and on
+     * a retry.
+     *
+     * A refusal throws {@see RuntimeProblemException}: retry
+     * `409 oauth.lifecycle_busy` and `503 oauth.disconnect_retryable` later
+     * with the SAME key; `409 connection.recovery_pending` (Xero) waits for
+     * the operator.
+     *
+     * @return array{provider_cleanup: string|null} `customer_action_required`
+     *   when a Xero disconnect completed locally only (the grant was already
+     *   dead): the Xero user who connected the organisation can remove it at
+     *   https://apps.xero.com/connected. Null otherwise.
+     *
+     * @throws RuntimeProblemException
+     * @throws \InvalidArgumentException when an argument is blank, too long, or not a provider this SDK can disconnect
+     */
+    public function disconnect(string $tenantId, string $connectionId, string $idempotencyKey, ?string $providerAccountId = null): array
+    {
+        ResponseReader::requireNonEmpty('tenantId', $tenantId);
+        ResponseReader::requireNonEmpty('connectionId', $connectionId);
+        if (trim($idempotencyKey) === '' || strlen($idempotencyKey) > 128) {
+            throw new \InvalidArgumentException('idempotencyKey must be a stable 1-128 character key for this disconnect attempt');
+        }
+        if ($providerAccountId !== null) {
+            ResponseReader::requireNonEmpty('providerAccountId', $providerAccountId);
+        }
+        $connection = $this->get($tenantId, $connectionId);
+        $providerKey = $connection['provider_key'] ?? null;
+        if (! is_string($providerKey) || ! in_array($providerKey, self::PROVIDER_KEYS, true)) {
+            throw new \UnexpectedValueException('Connection ' . $connectionId . ' has no provider_key this SDK can disconnect.');
+        }
+        $providerAccountId ??= $this->connectedProviderAccountId($tenantId, $connectionId);
+        $response = $this->client->send('POST', '/v1/connections/' . rawurlencode($connectionId) . '/disconnect', [
+            'tenant_id' => $tenantId,
+            'provider_key' => $providerKey,
+            'provider_account_id' => $providerAccountId,
+            'idempotency_key' => $idempotencyKey,
+        ]);
+        if ($response->getStatusCode() !== 204) {
+            ResponseReader::json($response, [204]);
+        }
+        $cleanup = trim($response->getHeaderLine('X-IR-Provider-Cleanup'));
+
+        return ['provider_cleanup' => $cleanup === '' ? null : $cleanup];
+    }
+
     /** @return array<string, mixed> authoritative connection state; use only `status === 'connected'` */
     public function get(string $tenantId, string $connectionId): array
     {
@@ -96,5 +160,23 @@ final class Connections
         ResponseReader::requireNonEmpty('tenantId', $tenantId);
 
         return ResponseReader::json($this->client->send('GET', ResponseReader::query('/v1/connections', ['tenant_id' => $tenantId, 'cursor' => $cursor, 'limit' => $limit])));
+    }
+
+    /** The company id `GET /v1/accounting/providers` reports for this connection, while it is the tenant's one connected accounting connection. */
+    private function connectedProviderAccountId(string $tenantId, string $connectionId): string
+    {
+        $body = ResponseReader::json($this->client->send('GET', ResponseReader::query('/v1/accounting/providers', ['tenant_id' => $tenantId])));
+        $connection = $body['connection'] ?? null;
+        $accountId = is_array($connection) && ($connection['connection_id'] ?? null) === $connectionId
+            ? ($connection['provider_account_id'] ?? null)
+            : null;
+        if (! is_string($accountId) || $accountId === '') {
+            throw new \UnexpectedValueException(
+                'Connection ' . $connectionId . ' is not the tenant\'s one connected accounting connection, so its provider_account_id '
+                . 'cannot be read; pass the provider_account_id you stored from providers() when the connection was confirmed.',
+            );
+        }
+
+        return $accountId;
     }
 }

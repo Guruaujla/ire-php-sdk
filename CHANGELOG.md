@@ -2,6 +2,30 @@
 
 Releases are published to `Guruaujla/ire-php-sdk` as `v` tags.
 
+## 1.7.0 (unreleased)
+
+- `Connections::disconnect($tenantId, $connectionId, $idempotencyKey,
+  $providerAccountId = null)` calls `POST /v1/connections/{id}/disconnect`. It
+  reads the connection for its `provider_key`, sends the documented body, and
+  returns `['provider_cleanup' => ?string]` (`customer_action_required` for a
+  Xero disconnect that was local only). A refusal throws
+  `RuntimeProblemException` (for example `409 oauth.lifecycle_busy` or
+  `503 oauth.disconnect_retryable`: retry with the same key). Pass the
+  `provider_account_id` you stored from `Accounting::providers()`; connection
+  reads do not return it. When it is left out the SDK reads `providers()` and
+  uses its `connection` if it is this one, and otherwise throws
+  `\UnexpectedValueException` before sending a disconnect. Invalid arguments
+  throw `\InvalidArgumentException` before any request.
+- README and `Accounting::connectionId()` point at `disconnect()` instead of a
+  hand-built signed call.
+- `RuntimeProblemException::decision()` maps `oauth.disconnect_retryable` (503)
+  and `oauth.lifecycle_busy` (409) to `retry_same_request` (retry once with the
+  same key, then escalate; they were `stop_and_reconcile`) and
+  `connection.recovery_pending` (409) to `ask_operator` (was
+  `stop_and_reconcile`). The table is shared with the TypeScript and Python
+  SDKs through `sdks/problem-decisions.json`
+  (`tools/generate-problem-decisions.php`).
+
 ## 1.6.1
 
 - `Jobs::get()` and `Jobs::wait()` accept the `polling_url` that

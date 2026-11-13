@@ -123,6 +123,11 @@ final class RuntimeProblemException extends \RuntimeException
      * (docs-site/content/index.md "HTTP decision table"; neutral
      * `accounting.*` codes per accounting-operations.md "Errors").
      * New values may be added; treat an unknown one as stop_and_reconcile.
+     *
+     * `oauth.disconnect_retryable` (503) and `oauth.lifecycle_busy` (409)
+     * decide retry_same_request: retry once with the SAME idempotency key and
+     * fresh signature, then escalate. `connection.recovery_pending` (409)
+     * decides ask_operator.
      */
     public function decision(): string
     {
@@ -141,6 +146,14 @@ final class RuntimeProblemException extends \RuntimeException
             return $code === 'hmac.nonce_reused' ? self::RETRY_SAME_REQUEST : self::FIX_CREDENTIALS;
         }
         if ($this->httpStatus === 403) {
+            return self::ASK_OPERATOR;
+        }
+        if ($code === 'oauth.disconnect_retryable' || $code === 'oauth.lifecycle_busy') {
+            // Disconnect/lifecycle contention: retry once with the SAME key, then escalate.
+            return self::RETRY_SAME_REQUEST;
+        }
+        if ($code === 'connection.recovery_pending') {
+            // In-doubt writes must be settled by the operator before a disconnect.
             return self::ASK_OPERATOR;
         }
         if ($this->httpStatus === 409 && $code === 'recipe_version_retired') {
