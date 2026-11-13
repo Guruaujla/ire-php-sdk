@@ -2,7 +2,7 @@
 
 Releases are published to `Guruaujla/ire-php-sdk` as `v` tags.
 
-## Unreleased (1.8.0)
+## 1.8.0
 
 - No code changes; results and reads are pass-through arrays, so the new
   fields arrive with no upgrade. Invoice create and update results
