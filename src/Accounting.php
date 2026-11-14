@@ -32,6 +32,8 @@ final class Accounting
         'accounting.invoice.update',
         'accounting.invoice.void',
         'accounting.payment.create',
+        'accounting.payment.void',
+        'accounting.payment.delete',
         'accounting.refund.create',
         'accounting.credit_memo.create',
         'accounting.credit_memo.apply',
@@ -145,6 +147,18 @@ final class Accounting
     public function createPayment(string $tenantId, string $erpPaymentId, string $idempotencyKey, array $payload, ?string $connectionId = null): OperationReceipt
     {
         return $this->execute('accounting.payment.create', $tenantId, $erpPaymentId, $idempotencyKey, $payload, $connectionId);
+    }
+
+    /** @param array<string, mixed> $payload `void_id`, `payment` {expected_revision} */
+    public function voidPayment(string $tenantId, string $erpPaymentId, string $idempotencyKey, array $payload, ?string $connectionId = null): OperationReceipt
+    {
+        return $this->execute('accounting.payment.void', $tenantId, $erpPaymentId, $idempotencyKey, $payload, $connectionId);
+    }
+
+    /** @param array<string, mixed> $payload `delete_id`, `payment` {expected_revision} */
+    public function deletePayment(string $tenantId, string $erpPaymentId, string $idempotencyKey, array $payload, ?string $connectionId = null): OperationReceipt
+    {
+        return $this->execute('accounting.payment.delete', $tenantId, $erpPaymentId, $idempotencyKey, $payload, $connectionId);
     }
 
     /** @param array<string, mixed> $payload `refund`, `expected_totals`, `original_invoice`, `original_payment` */

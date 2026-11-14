@@ -6,6 +6,10 @@ Releases are published to `Guruaujla/ire-php-sdk` as `v` tags.
 
 - `decision()` maps the new `accounting.invoice_has_payment` (a void of an
   invoice with a payment or credit applied) to `review_and_resubmit`.
+- `Accounting::voidPayment()` and `Accounting::deletePayment()` for the new
+  `accounting.payment.void` and `accounting.payment.delete` operations, and
+  `quickbooks.payment.void` / `quickbooks.payment.delete` in
+  `QuickBooks::OPERATIONS`. Both ship disabled until qualified.
 
 ## 1.8.0
 
