@@ -34,6 +34,7 @@ final class Accounting
         'accounting.payment.create',
         'accounting.payment.void',
         'accounting.payment.delete',
+        'accounting.payment.update',
         'accounting.refund.create',
         'accounting.credit_memo.create',
         'accounting.credit_memo.apply',
@@ -159,6 +160,12 @@ final class Accounting
     public function deletePayment(string $tenantId, string $erpPaymentId, string $idempotencyKey, array $payload, ?string $connectionId = null): OperationReceipt
     {
         return $this->execute('accounting.payment.delete', $tenantId, $erpPaymentId, $idempotencyKey, $payload, $connectionId);
+    }
+
+    /** @param array<string, mixed> $payload `change_id`, `payment` {expected_revision, and any of amount, date, payment_method, deposit_account, reference} */
+    public function updatePayment(string $tenantId, string $erpPaymentId, string $idempotencyKey, array $payload, ?string $connectionId = null): OperationReceipt
+    {
+        return $this->execute('accounting.payment.update', $tenantId, $erpPaymentId, $idempotencyKey, $payload, $connectionId);
     }
 
     /** @param array<string, mixed> $payload `refund`, `expected_totals`, `original_invoice`, `original_payment` */

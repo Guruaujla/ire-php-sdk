@@ -10,6 +10,10 @@ Releases are published to `Guruaujla/ire-php-sdk` as `v` tags.
   `accounting.payment.void` and `accounting.payment.delete` operations, and
   `quickbooks.payment.void` / `quickbooks.payment.delete` in
   `QuickBooks::OPERATIONS`. Both ship disabled until qualified.
+- `Accounting::updatePayment()` for the new `accounting.payment.update`
+  operation, and `quickbooks.payment.update` in `QuickBooks::OPERATIONS`.
+  Ships disabled until qualified. A payment update result carries
+  `unapplied_amount` and `invoice.revision`.
 
 ## 1.8.0
 

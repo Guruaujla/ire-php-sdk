@@ -36,6 +36,7 @@ final class QuickBooks
         'quickbooks.payment.create' => ['erp.quickbooks.payment.created', 2, 'erp.payment.created', 'payment'],
         'quickbooks.payment.void' => ['erp.quickbooks.payment.voided', 1, 'erp.payment.voided', 'payment_void'],
         'quickbooks.payment.delete' => ['erp.quickbooks.payment.deleted', 1, 'erp.payment.deleted', 'payment_delete'],
+        'quickbooks.payment.update' => ['erp.quickbooks.payment.updated', 1, 'erp.payment.updated', 'payment_update'],
         'quickbooks.refund.create' => ['erp.quickbooks.refund.created', 3, 'erp.refund.created', 'refund_receipt'],
         'quickbooks.credit_memo.create' => ['erp.quickbooks.credit_memo.created', 1, 'erp.credit_memo.created', 'credit_memo'],
         'quickbooks.credit_memo.apply' => ['erp.quickbooks.credit_memo.applied', 1, 'erp.credit_memo.applied', 'credit_application'],
