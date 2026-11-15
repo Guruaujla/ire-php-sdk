@@ -4,6 +4,10 @@ Releases are published to `Guruaujla/ire-php-sdk` as `v` tags.
 
 ## Unreleased
 
+- `Accounting::voidPayment()` and `Accounting::deletePayment()` now also
+  reach Xero, where both delete the payment (`xero.payment.delete`, disabled
+  until qualified); a deleted Xero payment's `revision` is `deleted`. There is
+  no Xero operations map, so no constant changed.
 - `decision()` maps the new `accounting.invoice_has_payment` (a void of an
   invoice with a payment or credit applied) to `review_and_resubmit`.
 - `Accounting::voidPayment()` and `Accounting::deletePayment()` for the new
