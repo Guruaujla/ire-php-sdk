@@ -43,6 +43,9 @@ final class Accounting
     /** Document types the refresh read covers. */
     public const REFRESH_DOCUMENT_TYPES = ['invoice', 'payment'];
 
+    /** Documents {@see pdf()} can download. */
+    public const PDF_DOCUMENT_TYPES = ['invoice', 'credit_memo'];
+
     /** Provider record types the onboarding list, match and bind cover. */
     public const RECORD_ENTITIES = ['customer', 'item', 'tax_code'];
 
@@ -272,6 +275,36 @@ final class Accounting
             self::connectionPath($connectionId) . '/documents/invoice/' . rawurlencode($erpInvoiceId) . '/online-link',
             ['tenant_id' => $tenantId],
         )));
+    }
+
+    /**
+     * The PDF the provider renders now for an invoice or credit memo this
+     * connection wrote (QuickBooks invoice/credit memo, Xero invoice/credit
+     * note), as raw bytes. At most 4 MiB; a larger one is a 503
+     * accounting.provider_unavailable.
+     *
+     * `$documentType` is `invoice` or `credit_memo`.
+     *
+     * @return string the PDF bytes
+     */
+    public function pdf(string $tenantId, string $connectionId, string $documentType, string $erpId): string
+    {
+        if (! in_array($documentType, self::PDF_DOCUMENT_TYPES, true)) {
+            throw new \InvalidArgumentException('documentType must be one of ' . implode(', ', self::PDF_DOCUMENT_TYPES));
+        }
+        $response = $this->client->send('GET', ResponseReader::query(
+            self::connectionPath($connectionId) . '/documents/' . $documentType . '/' . rawurlencode($erpId) . '/pdf',
+            ['tenant_id' => $tenantId],
+        ));
+        if ($response->getStatusCode() !== 200) {
+            ResponseReader::json($response);
+        }
+        $body = (string) $response->getBody();
+        if (! str_starts_with($body, '%PDF-')) {
+            throw new \UnexpectedValueException('Integration Runtime PDF response is not a PDF.');
+        }
+
+        return $body;
     }
 
     /**

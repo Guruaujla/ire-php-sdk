@@ -61,6 +61,7 @@ final class RuntimeProblemException extends \RuntimeException
         'accounting.mapping_missing' => self::FIX_SETUP,
         'accounting.record_type_disabled' => self::FIX_SETUP,
         'accounting.document_unlinked' => self::FIX_SETUP,
+        'accounting.document_deleted' => self::DO_NOT_SYNC,
         'accounting.no_accounting_connection' => self::FIX_SETUP,
         'accounting.multiple_accounting_connections' => self::FIX_SETUP,
         'accounting.connection_exists' => self::FIX_SETUP,

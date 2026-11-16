@@ -9,6 +9,7 @@ use Ezee\IntegrationRuntime\Exception\RuntimeProblemException;
 use Ezee\IntegrationRuntime\OperationReceipt;
 use Ezee\IntegrationRuntime\Tests\Support\Clients;
 use Ezee\IntegrationRuntime\Tests\Support\ScriptedTransport;
+use GuzzleHttp\Psr7\Response;
 use PHPUnit\Framework\Attributes\CoversClass;
 use PHPUnit\Framework\Attributes\DataProvider;
 use PHPUnit\Framework\TestCase;
@@ -298,5 +299,31 @@ final class AccountingTest extends TestCase
                 self::addToAssertionCount(1);
             }
         }
+    }
+
+    public function testPdfReturnsTheBytesAndThrowsTheProblem(): void
+    {
+        $transport = new ScriptedTransport([
+            new Response(200, ['content-type' => 'application/pdf'], "%PDF-1.4\nx"),
+            Clients::json(409, ['code' => 'accounting.document_unlinked']),
+            new Response(200, ['content-type' => 'text/html'], '<html>'),
+        ]);
+        $a = new Accounting(Clients::client($transport));
+        self::assertSame("%PDF-1.4\nx", $a->pdf('t1', 'c 1', 'credit_memo', 'CM 1'));
+        self::assertSame('/v1/accounting/connections/c%201/documents/credit_memo/CM%201/pdf?tenant_id=t1', $transport->target(0));
+        try {
+            $a->pdf('t1', 'c 1', 'invoice', 'INV-1');
+            self::fail('expected a problem');
+        } catch (RuntimeProblemException $e) {
+            self::assertSame('accounting.document_unlinked', $e->problemCode);
+        }
+        $this->expectException(\UnexpectedValueException::class);
+        $a->pdf('t1', 'c 1', 'invoice', 'INV-1');
+    }
+
+    public function testPdfRefusesAnUnknownDocumentType(): void
+    {
+        $this->expectException(\InvalidArgumentException::class);
+        (new Accounting(Clients::client(new ScriptedTransport([]))))->pdf('t', 'c', 'payment', 'P1');
     }
 }

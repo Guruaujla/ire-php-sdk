@@ -4,6 +4,10 @@ Releases are published to `Guruaujla/ire-php-sdk` as `v` tags.
 
 ## Unreleased
 
+- `decision()` maps the new `accounting.document_deleted` (410, the provider
+  no longer has the document) to `do_not_sync`.
+- `Accounting::pdf()` downloads the provider's PDF of an invoice or credit
+  memo the runtime wrote, as raw bytes.
 - `Accounting::onlineLink()` reads the customer's online view-and-pay link
   of an invoice the runtime wrote (QuickBooks `InvoiceLink`, Xero
   `OnlineInvoiceUrl`); `url` is null when the provider has none.
