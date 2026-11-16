@@ -4,6 +4,9 @@ Releases are published to `Guruaujla/ire-php-sdk` as `v` tags.
 
 ## Unreleased
 
+- `Accounting::updateSettings()` takes `?array $recordTypes` (null keeps
+  them) and a new optional `?string $syncStartDate` to move the connection's
+  sync start date. It throws `InvalidArgumentException` when both are null.
 - `Accounting::voidPayment()` and `Accounting::deletePayment()` now also
   reach Xero, where both delete the payment (`xero.payment.delete`, disabled
   until qualified); a deleted Xero payment's `revision` is `deleted`. There is

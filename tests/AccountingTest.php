@@ -80,6 +80,19 @@ final class AccountingTest extends TestCase
         self::assertArrayNotHasKey('provider_key', $transport->body(1));
     }
 
+    public function testUpdateSettingsSendsOnlyTheChangedFields(): void
+    {
+        $ok = static fn() => Clients::json(200, ['revision' => 4]);
+        $transport = new ScriptedTransport([$ok(), $ok()]);
+        $a = new Accounting(Clients::client($transport));
+        $a->updateSettings('t1', 'c1', null, 3, '2026-01-01');
+        $a->updateSettings('t1', 'c1', ['invoice'], 4);
+        self::assertSame(['tenant_id' => 't1', 'sync_start_date' => '2026-01-01', 'expected_revision' => 3], $transport->body(0));
+        self::assertSame(['tenant_id' => 't1', 'record_types' => ['invoice'], 'expected_revision' => 4], $transport->body(1));
+        $this->expectException(\InvalidArgumentException::class);
+        $a->updateSettings('t1', 'c1', null, 5);
+    }
+
     public function testRejectsUnknownOperationsAndUnstableKeys(): void
     {
         foreach (['', '   ', str_repeat('k', 129)] as $key) {

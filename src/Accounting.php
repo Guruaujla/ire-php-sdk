@@ -362,16 +362,28 @@ final class Accounting
     }
 
     /**
-     * @param list<string> $recordTypes the record types to sync, from invoice, payment, credit_memo, refund
+     * Change the synced record types, the sync start date, or both. Pass null
+     * to keep a value as it is. Before moving the start date earlier, match or
+     * link the provider's existing records of that period.
+     *
+     * @param list<string>|null $recordTypes the record types to sync, from invoice, payment, credit_memo, refund; null keeps them
+     * @param string|null $syncStartDate new first day to sync (YYYY-MM-DD); null keeps it
      * @return array<string, mixed>
      */
-    public function updateSettings(string $tenantId, string $connectionId, array $recordTypes, int $expectedRevision): array
+    public function updateSettings(string $tenantId, string $connectionId, ?array $recordTypes, int $expectedRevision, ?string $syncStartDate = null): array
     {
-        return ResponseReader::json($this->client->send('PUT', self::connectionPath($connectionId) . '/settings', [
-            'tenant_id' => $tenantId,
-            'record_types' => $recordTypes,
-            'expected_revision' => $expectedRevision,
-        ]));
+        if ($recordTypes === null && $syncStartDate === null) {
+            throw new \InvalidArgumentException('Pass recordTypes, syncStartDate, or both');
+        }
+        $body = ['tenant_id' => $tenantId];
+        if ($recordTypes !== null) {
+            $body['record_types'] = $recordTypes;
+        }
+        if ($syncStartDate !== null) {
+            $body['sync_start_date'] = $syncStartDate;
+        }
+        $body['expected_revision'] = $expectedRevision;
+        return ResponseReader::json($this->client->send('PUT', self::connectionPath($connectionId) . '/settings', $body));
     }
 
     /**
