@@ -486,10 +486,10 @@ final class Accounting
 
     /**
      * Bind ERP records to provider records, so writes reuse them instead of
-     * creating duplicates. A row refused with `accounting.mapping_conflict`
-     * because the ERP id is already bound to another record carries that
-     * record as `bound_provider_ref`. After a reconnect, an ERP id can be
-     * bound again to a different record.
+     * creating duplicates. An ERP id already bound to a different record is
+     * re-bound to the new one, on every provider. A row refused with
+     * `accounting.mapping_conflict` carries `reason` (for example
+     * `bound_to_other_record` with `bound_erp_id`).
      *
      * @param list<array<string, mixed>> $bindings each {erp_id, provider_ref, treatment?}
      * @return array<string, mixed>
