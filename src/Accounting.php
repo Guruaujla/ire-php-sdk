@@ -257,6 +257,24 @@ final class Accounting
     }
 
     /**
+     * The customer's online view-and-pay link of an invoice this connection
+     * wrote, read from the provider now: QuickBooks InvoiceLink, Xero
+     * OnlineInvoiceUrl. `url` is null when the provider has none (QuickBooks
+     * online payments off or no customer email; a Xero invoice not yet
+     * approved). Read it again
+     * before you send it rather than storing it.
+     *
+     * @return array<string, mixed> `provider_key`, `erp_id`, `provider_id`, `url`
+     */
+    public function onlineLink(string $tenantId, string $connectionId, string $erpInvoiceId): array
+    {
+        return ResponseReader::json($this->client->send('GET', ResponseReader::query(
+            self::connectionPath($connectionId) . '/documents/invoice/' . rawurlencode($erpInvoiceId) . '/online-link',
+            ['tenant_id' => $tenantId],
+        )));
+    }
+
+    /**
      * Record the ERP line ids of an invoice created earlier through
      * quickbooks(), so update, refund and credit memo can name its lines. Send
      * every line, either as `{erp_line_id, provider_line_id}` or exactly as it

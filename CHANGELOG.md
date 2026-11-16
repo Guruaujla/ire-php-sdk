@@ -4,6 +4,9 @@ Releases are published to `Guruaujla/ire-php-sdk` as `v` tags.
 
 ## Unreleased
 
+- `Accounting::onlineLink()` reads the customer's online view-and-pay link
+  of an invoice the runtime wrote (QuickBooks `InvoiceLink`, Xero
+  `OnlineInvoiceUrl`); `url` is null when the provider has none.
 - `Accounting::updateSettings()` takes `?array $recordTypes` (null keeps
   them) and a new optional `?string $syncStartDate` to move the connection's
   sync start date. It throws `InvalidArgumentException` when both are null.

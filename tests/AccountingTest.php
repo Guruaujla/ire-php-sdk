@@ -224,6 +224,7 @@ final class AccountingTest extends TestCase
             $ok(),
             $ok(),
             $ok(),
+            $ok(),
             Clients::json(204, null),
             $ok(),
             $ok(),
@@ -236,6 +237,7 @@ final class AccountingTest extends TestCase
         $a->status('t1', 'j/1');
         self::assertSame('c 1', $a->connectionId('t1'));
         $a->refresh('t1', 'c 1', 'invoice', 'INV 1');
+        $a->onlineLink('t1', 'c 1', 'INV 1');
         $a->link('t1', 'c 1', 'INV-1', [['erp_line_id' => 'L1', 'provider_line_id' => '1']]);
         $a->referenceData('t1', 'c 1', 'tax_code', name: 'HST ON');
         $a->getMapping('t1', 'c 1', 'tax_code', 'HST');
@@ -253,6 +255,7 @@ final class AccountingTest extends TestCase
             ['GET', '/v1/accounting/operations/j%2F1?tenant_id=t1'],
             ['GET', '/v1/accounting/providers?tenant_id=t1'],
             ['GET', $c . '/documents/invoice/INV%201?tenant_id=t1'],
+            ['GET', $c . '/documents/invoice/INV%201/online-link?tenant_id=t1'],
             ['PUT', $c . '/documents/invoice/INV-1/link'],
             ['GET', $c . '/reference-data/tax_code?tenant_id=t1&name=HST%20ON'],
             ['GET', $c . '/mappings/tax_code/HST?tenant_id=t1'],
@@ -265,9 +268,9 @@ final class AccountingTest extends TestCase
             ['POST', $c . '/records/item/match'],
             ['POST', $c . '/records/customer/bind'],
         ], array_map(fn(int $i) => [$transport->requests[$i]->getMethod(), $transport->target($i)], array_keys($transport->requests)));
-        self::assertSame(['tenant_id' => 't1', 'lines' => [['erp_line_id' => 'L1', 'provider_line_id' => '1']]], $transport->body(3));
-        self::assertSame(['tenant_id' => 't1', 'provider_ref' => '5', 'treatment' => 'taxable'], $transport->body(6));
-        self::assertSame(['tenant_id' => 't1', 'record_types' => ['invoice', 'payment'], 'expected_revision' => 3], $transport->body(9));
+        self::assertSame(['tenant_id' => 't1', 'lines' => [['erp_line_id' => 'L1', 'provider_line_id' => '1']]], $transport->body(4));
+        self::assertSame(['tenant_id' => 't1', 'provider_ref' => '5', 'treatment' => 'taxable'], $transport->body(7));
+        self::assertSame(['tenant_id' => 't1', 'record_types' => ['invoice', 'payment'], 'expected_revision' => 3], $transport->body(10));
     }
 
     public function testConnectionIdRefusesWhenTheTenantHasNoSingleConnection(): void
