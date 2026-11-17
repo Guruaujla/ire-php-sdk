@@ -33,6 +33,7 @@ final class QuickBooks
         'quickbooks.invoice.create' => ['erp.quickbooks.invoice.created', 5, 'erp.invoice.created', 'invoice'],
         'quickbooks.invoice.update_sparse' => ['erp.quickbooks.invoice.updated', 1, 'erp.invoice.updated', 'invoice_update'],
         'quickbooks.invoice.void' => ['erp.quickbooks.invoice.voided', 1, 'erp.invoice.voided', 'invoice_void'],
+        'quickbooks.invoice.delete' => ['erp.quickbooks.invoice.deleted', 1, 'erp.invoice.deleted', 'invoice_delete'],
         'quickbooks.payment.create' => ['erp.quickbooks.payment.created', 2, 'erp.payment.created', 'payment'],
         'quickbooks.payment.void' => ['erp.quickbooks.payment.voided', 1, 'erp.payment.voided', 'payment_void'],
         'quickbooks.payment.delete' => ['erp.quickbooks.payment.deleted', 1, 'erp.payment.deleted', 'payment_delete'],

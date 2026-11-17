@@ -4,6 +4,11 @@ Releases are published to `Guruaujla/ire-php-sdk` as `v` tags.
 
 ## Unreleased
 
+- `Accounting::deleteInvoice()` sends `accounting.invoice.delete`
+  (QuickBooks only; Xero answers 422 `accounting.capability_unsupported`).
+  `Accounting::OPERATIONS` and `QuickBooks::OPERATIONS` list the new
+  operation (`quickbooks.invoice.delete`, recipe
+  `erp.quickbooks.invoice.deleted` v1).
 - No code changes for the matching and binding fields: reads and results
   are pass-through arrays, and `matchRecords()` sends records as given.
   Docblocks now describe them: match records take `tax_number` and

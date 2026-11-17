@@ -31,6 +31,7 @@ final class Accounting
         'accounting.invoice.create',
         'accounting.invoice.update',
         'accounting.invoice.void',
+        'accounting.invoice.delete',
         'accounting.payment.create',
         'accounting.payment.void',
         'accounting.payment.delete',
@@ -160,6 +161,18 @@ final class Accounting
     public function voidInvoice(string $tenantId, string $erpInvoiceId, string $idempotencyKey, array $payload, ?string $connectionId = null): OperationReceipt
     {
         return $this->execute('accounting.invoice.void', $tenantId, $erpInvoiceId, $idempotencyKey, $payload, $connectionId);
+    }
+
+    /**
+     * QuickBooks only (Xero answers 422 `accounting.capability_unsupported`;
+     * void instead). A payment applied to the invoice stays, unapplied. The
+     * deleted invoice's `erp_id` is never reused.
+     *
+     * @param array<string, mixed> $payload `delete_id`, `invoice` with its `expected_revision` and `before_totals`
+     */
+    public function deleteInvoice(string $tenantId, string $erpInvoiceId, string $idempotencyKey, array $payload, ?string $connectionId = null): OperationReceipt
+    {
+        return $this->execute('accounting.invoice.delete', $tenantId, $erpInvoiceId, $idempotencyKey, $payload, $connectionId);
     }
 
     /** @param array<string, mixed> $payload `payment`, `invoice` {erp_id, expected_revision, expected_balance} */

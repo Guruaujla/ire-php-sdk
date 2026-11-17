@@ -128,6 +128,16 @@ final class AccountingTest extends TestCase
         }
     }
 
+    public function testDeleteInvoiceSendsTheNeutralDelete(): void
+    {
+        $transport = new ScriptedTransport([Clients::json(202, ['job_id' => 'job_1', 'operation' => 'accounting.invoice.delete', 'status' => 'queued', 'idempotent_replay' => false, 'polling_url' => '/v1/accounting/operations/job_1'])]);
+        (new Accounting(Clients::client($transport)))->deleteInvoice('t', 'INV-1', 'delete:1', ['delete_id' => 'D1']);
+        $body = $transport->body(0);
+        self::assertSame('accounting.invoice.delete', $body['operation']);
+        self::assertSame('INV-1', $body['erp_id']);
+        self::assertSame(['delete_id' => 'D1'], $body['payload']);
+    }
+
     /** @return iterable<string, array{int, string, string}> */
     public static function accountingProblems(): iterable
     {
