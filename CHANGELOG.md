@@ -4,6 +4,22 @@ Releases are published to `Guruaujla/ire-php-sdk` as `v` tags.
 
 ## Unreleased
 
+- No code changes for the matching and binding fields: reads and results
+  are pass-through arrays, and `matchRecords()` sends records as given.
+  Docblocks now describe them: match records take `tax_number` and
+  `account_number` (customers) and `rate_percent` (tax codes); candidates
+  carry `match_reasons`, `usable` and `unusable_reason`; results carry
+  `not_matched_reason` and `unsearchable_keys`; options carry `account_type`,
+  `account_code` and `recommended`; tax codes carry `rate_percent` and
+  `suggested_treatment`. A bind re-binds an ERP id already bound to another
+  record on every provider (`record_already_bound` is no longer returned),
+  a refused row carries `reason`, `pending_change` is a retryable 503, and a
+  batch or bind job naming one `provider_ref` twice is a 400.
+  `getMapping()` checks payment method and account mappings live (`state`
+  `inactive` or `drifted`). `upsertCustomer()` and `upsertItem()` note the
+  QuickBooks name pre-check (409 `accounting.document_exists`) and the item
+  type change refusal (409 `accounting.unsupported_change`), both now at
+  submit; their decisions are unchanged.
 - `decision()` maps the new `accounting.document_deleted` (410, the provider
   no longer has the document) to `do_not_sync`.
 - `Accounting::pdf()` downloads the provider's PDF of an invoice or credit

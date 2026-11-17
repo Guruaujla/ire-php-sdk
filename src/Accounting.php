@@ -117,13 +117,28 @@ final class Accounting
         return $this->submit(self::buildRequest($operation, $tenantId, $erpId, $idempotencyKey, $payload, $connectionId));
     }
 
-    /** @param array<string, mixed> $payload `customer` {name, email?, currency} */
+    /**
+     * On QuickBooks, a create whose name a customer, vendor or employee
+     * already uses (letter case ignored) is refused at submit with 409
+     * `accounting.document_exists` naming the record. When
+     * `candidate_provider_id` is set (a customer), bind that record instead;
+     * otherwise (a vendor or employee) rename the customer in the ERP.
+     *
+     * @param array<string, mixed> $payload `customer` {name, email?, currency, phone?, first_name?, last_name?, company_name?, billing_address?, shipping_address?}
+     */
     public function upsertCustomer(string $tenantId, string $erpCustomerId, string $idempotencyKey, array $payload, ?string $connectionId = null): OperationReceipt
     {
         return $this->execute('accounting.customer.upsert', $tenantId, $erpCustomerId, $idempotencyKey, $payload, $connectionId);
     }
 
-    /** @param array<string, mixed> $payload `item` {name, type, income_account, unit_price, description?} */
+    /**
+     * On QuickBooks, a create whose name an item already uses is refused at
+     * submit with 409 `accounting.document_exists` (`candidate_provider_id`
+     * names it: bind it instead), and an update whose `type` differs from the
+     * provider item with 409 `accounting.unsupported_change`.
+     *
+     * @param array<string, mixed> $payload `item` {name, type (service or non_inventory), income_account, unit_price, description?, sku?}
+     */
     public function upsertItem(string $tenantId, string $erpItemId, string $idempotencyKey, array $payload, ?string $connectionId = null): OperationReceipt
     {
         return $this->execute('accounting.item.upsert', $tenantId, $erpItemId, $idempotencyKey, $payload, $connectionId);
@@ -338,6 +353,8 @@ final class Accounting
      * account) by its exact provider id or exact name, e.g. to confirm the
      * record an admin picked before {@see setMapping()}. Pass exactly one of
      * `$providerRef` or `$name`. To offer a list, use {@see referenceOptions()}.
+     * The record carries `usable` and, when false, `unusable_reason`
+     * (`inactive`, `not_usable_for_kind`; open enum).
      *
      * @return array<string, mixed>
      */
@@ -356,9 +373,13 @@ final class Accounting
     /**
      * One page of the provider records a code kind (payment_method,
      * deposit_account, refund_account, income_account) can point at, for an
-     * ERP mapping dropdown (`items` with kind, provider_ref, name, active, email;
-     * `next_cursor`). Only records the write path accepts for the kind are
-     * listed. Inactive records are included; offer only active ones.
+     * ERP mapping dropdown (`items` with kind, provider_ref, name, active,
+     * email, usable, unusable_reason; `next_cursor`). Only records the write
+     * path accepts for the kind are listed. Inactive records are included;
+     * offer only `usable` ones. Accounts also carry `account_type` and
+     * `account_code`; the usual pick (a bank account, or QuickBooks
+     * Undeposited Funds, for deposits and refunds) carries `recommended: true`
+     * and comes first (on QuickBooks, first within each page).
      *
      * @return array<string, mixed>
      */
@@ -370,7 +391,15 @@ final class Accounting
         )));
     }
 
-    /** @return array<string, mixed> */
+    /**
+     * A payment method or account mapping is checked against the provider
+     * on each read (one provider read): `state` is `inactive` when the
+     * provider record is archived or inactive and `drifted` when it is gone or
+     * no longer usable for the kind. When the provider cannot be read, the
+     * stored state is returned. `state` is an open enum.
+     *
+     * @return array<string, mixed>
+     */
     public function getMapping(string $tenantId, string $connectionId, string $kind, string $erpCode): array
     {
         return ResponseReader::json($this->client->send('GET', ResponseReader::query(self::mappingPath($connectionId, $kind, $erpCode), ['tenant_id' => $tenantId])));
@@ -378,7 +407,15 @@ final class Accounting
 
     /**
      * Map an ERP code (tax code, payment method, account) to a provider
-     * record. `$treatment` applies to tax codes only.
+     * record. `$treatment` applies to tax codes only. A customer, item or tax
+     * code already bound to another provider record is re-bound, on every
+     * provider. A lasting refusal is 409 with `reason` (open enum):
+     * `accounting.mapping_conflict` (for example `bound_to_other_record` with
+     * `bound_erp_id`) or, for a payment method or account,
+     * `accounting.reference_invalid` (`inactive`, `not_usable_for_kind`); an
+     * unknown provider record is 404. A passing one
+     * (`pending_change`, `connection_changed`) is 503
+     * `accounting.provider_unavailable`: retry.
      *
      * @return array<string, mixed>
      */
@@ -440,12 +477,19 @@ final class Accounting
     /**
      * One page of provider customers, items or tax codes for onboarding
      * (`records` with provider_ref, name, active, email, sku; `next_cursor`).
-     * Inactive records are included. It does not say which ERP id a record
-     * is bound to; {@see matchRecords()} candidates carry `bound_erp_id`.
+     * Inactive records are included. Live records also carry `usable` and
+     * `unusable_reason`; tax codes carry `rate_percent` (null when the rates
+     * could not be read) and `suggested_treatment`; live Xero customers carry
+     * `tax_number` and `account_number`. Active tax codes are sales codes
+     * only (inactive ones are listed with `usable: false` and a null
+     * `rate_percent`), and a QuickBooks tax code page may hold fewer than
+     * `$limit` rows: follow `next_cursor`. It does not say which ERP id a
+     * record is bound to; {@see matchRecords()} candidates carry
+     * `bound_erp_id`.
      *
      * `$source`: `live` (the default) pages the provider; `snapshot` pages a
      * ready snapshot ({@see startSnapshot()}), in name order. Records read
-     * from a snapshot carry no email or SKU (null). `$q` searches a ready
+     * from a snapshot carry no email or SKU (null) and no `usable`. `$q` searches a ready
      * snapshot of customers or items: an exact email on customers when it
      * contains `@`, otherwise a name prefix (at least 3 characters). A
      * cursor only works with the source that issued it.
@@ -461,8 +505,19 @@ final class Accounting
     }
 
     /**
-     * Find the provider record for each ERP record (by email, SKU or name).
-     * `matched` is safe to bind; `suggested` needs a person to choose.
+     * Find the provider record for each ERP record (by email, SKU or name;
+     * tax codes also by `rate_percent`). `matched` is safe to bind (see
+     * `matched_on`); `suggested` needs a person to choose. Two records of one
+     * call are never both `matched` to one provider record. Each candidate
+     * carries `bound_erp_id`, `usable`, `unusable_reason` and `match_reasons`
+     * (open enum: email, sku, name, loose_name, tax_number, account_number,
+     * rate); only email, sku and name can make a record `matched`. Each result
+     * carries `not_matched_reason` (open enum, null when none) and, when a
+     * value cannot be searched, `unsearchable_keys`. The response's
+     * `unsupported_keys` lists keys the source could not compare: the
+     * provider refused to filter by them (those records matched on the other
+     * keys), or it has no such field (for example QuickBooks customers'
+     * `tax_number` and `account_number`).
      *
      * `$source` (customers and items): `auto` (the server default) matches
      * against a ready snapshot under 24 hours old, up to 1,000 records per
@@ -471,7 +526,7 @@ final class Accounting
      * `accounting.snapshot_not_ready`. `snapshot` and `live` force one source.
      * The response names the `source` it used and the snapshot's `as_of`.
      *
-     * @param list<array<string, mixed>> $records each {erp_id, name, email?, sku?}
+     * @param list<array<string, mixed>> $records customers {erp_id, name, email?, tax_number?, account_number?}; items {erp_id, name, sku?}; tax codes {erp_id, name, rate_percent?}
      * @return array<string, mixed>
      */
     public function matchRecords(string $tenantId, string $connectionId, string $entity, array $records, ?string $source = null): array
@@ -487,9 +542,13 @@ final class Accounting
     /**
      * Bind ERP records to provider records, so writes reuse them instead of
      * creating duplicates. An ERP id already bound to a different record is
-     * re-bound to the new one, on every provider. A row refused with
-     * `accounting.mapping_conflict` carries `reason` (for example
-     * `bound_to_other_record` with `bound_erp_id`).
+     * re-bound to the new one, on every provider. A refused row carries
+     * `reason` (open enum, the same on every provider: for example
+     * `bound_to_other_record` with `bound_erp_id`, or `pending_change` with
+     * `accounting.provider_unavailable`: retry). A batch that names one
+     * `provider_ref` twice is refused with 400 `accounting.invalid_input`
+     * (`errors` names each repeat) before anything is bound. For tax codes,
+     * preselect the record's `suggested_treatment` as `treatment`.
      *
      * @param list<array<string, mixed>> $bindings each {erp_id, provider_ref, treatment?}
      * @return array<string, mixed>
@@ -542,7 +601,9 @@ final class Accounting
      * Bind up to 5,000 customers or items in one background job. Every row
      * is verified with the provider and stored like {@see bindRecords()};
      * each row succeeds or fails on its own. One bind job runs per
-     * connection at a time. The job's `sync_job.completed` (or
+     * connection at a time. Bindings that name one `provider_ref` twice are
+     * refused with 400 `accounting.invalid_input` before the job starts. The
+     * job's `sync_job.completed` (or
      * `sync_job.dead_lettered`) webhook fires when it ends; then read
      * {@see bindJobResults()}.
      *
@@ -557,8 +618,10 @@ final class Accounting
     /**
      * One page (up to 500 rows, request order) of a bind job's results,
      * with the job's counts and status. Each row is `bound`, `refused`
-     * (with `code`, and `bound_provider_ref` on a `mapping_conflict`) or
-     * `not_attempted` (send it again in a new job). Follow `next_cursor`
+     * (with `code` and `reason`, open enum as for {@see bindRecords()}, plus
+     * `bound_erp_id` with `bound_to_other_record`; rows recorded before
+     * reasons existed have `reason: null`) or `not_attempted` (send it again
+     * in a new job). Follow `next_cursor`
      * until it is null. Results are kept 7 days after the job ends.
      *
      * @return array<string, mixed>
