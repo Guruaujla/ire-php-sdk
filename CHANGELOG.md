@@ -2,8 +2,19 @@
 
 Releases are published to `Guruaujla/ire-php-sdk` as `v` tags.
 
-## Unreleased
+## 1.9.0
 
+- Docblocks of `Accounting::voidPayment()`, `deletePayment()`,
+  `updatePayment()` and `deleteInvoice()` say what each provider does
+  (Xero deletes on a void, and refuses a payment update and an invoice
+  delete with 422 `accounting.capability_unsupported`), the refusals
+  as the job's error (`accounting.unsupported_change` for a payment named by
+  a runtime refund, a deposited QuickBooks payment, a reconciled or batch Xero
+  payment, or a QuickBooks delete of a voided payment;
+  `accounting.period_closed`), that repeating the same reversal completes with
+  no write, that a lower payment amount lowers its application with it, that a
+  deleted `erp_id` is never reused, and that each operation is disabled until
+  qualified and enabled for the app. Tests cover all four helpers.
 - `Accounting::deleteInvoice()` sends `accounting.invoice.delete`
   (QuickBooks only; Xero answers 422 `accounting.capability_unsupported`).
   `Accounting::OPERATIONS` and `QuickBooks::OPERATIONS` list the new

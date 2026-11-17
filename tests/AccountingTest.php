@@ -128,14 +128,60 @@ final class AccountingTest extends TestCase
         }
     }
 
-    public function testDeleteInvoiceSendsTheNeutralDelete(): void
+    /** @return iterable<string, array{string, string, string, array<string, mixed>}> */
+    public static function reversalHelpers(): iterable
     {
-        $transport = new ScriptedTransport([Clients::json(202, ['job_id' => 'job_1', 'operation' => 'accounting.invoice.delete', 'status' => 'queued', 'idempotent_replay' => false, 'polling_url' => '/v1/accounting/operations/job_1'])]);
-        (new Accounting(Clients::client($transport)))->deleteInvoice('t', 'INV-1', 'delete:1', ['delete_id' => 'D1']);
-        $body = $transport->body(0);
-        self::assertSame('accounting.invoice.delete', $body['operation']);
-        self::assertSame('INV-1', $body['erp_id']);
-        self::assertSame(['delete_id' => 'D1'], $body['payload']);
+        yield 'void payment' => ['voidPayment', 'accounting.payment.void', 'PAY-1', ['void_id' => 'V1', 'payment' => ['expected_revision' => '3']]];
+        yield 'delete payment' => ['deletePayment', 'accounting.payment.delete', 'PAY-1', ['delete_id' => 'D1', 'payment' => ['expected_revision' => '3']]];
+        yield 'update payment' => ['updatePayment', 'accounting.payment.update', 'PAY-1', ['change_id' => 'C1', 'payment' => ['expected_revision' => '3', 'amount' => '80.00']]];
+        yield 'delete invoice' => ['deleteInvoice', 'accounting.invoice.delete', 'INV-1', ['delete_id' => 'D1']];
+    }
+
+    /** @param array<string, mixed> $payload */
+    #[DataProvider('reversalHelpers')]
+    public function testReversalHelpersSendTheirNeutralOperation(string $method, string $operation, string $erpId, array $payload): void
+    {
+        $accepted = static fn() => Clients::json(202, ['job_id' => 'job_1', 'operation' => $operation, 'status' => 'queued', 'idempotent_replay' => false, 'polling_url' => '/v1/accounting/operations/job_1']);
+        $transport = new ScriptedTransport([$accepted(), $accepted()]);
+        $accounting = new Accounting(Clients::client($transport));
+        $send = static fn(?string $connectionId): OperationReceipt => match ($method) {
+            'voidPayment' => $accounting->voidPayment('t', $erpId, 'reversal:1', $payload, $connectionId),
+            'deletePayment' => $accounting->deletePayment('t', $erpId, 'reversal:1', $payload, $connectionId),
+            'updatePayment' => $accounting->updatePayment('t', $erpId, 'reversal:1', $payload, $connectionId),
+            'deleteInvoice' => $accounting->deleteInvoice('t', $erpId, 'reversal:1', $payload, $connectionId),
+            default => throw new \LogicException('unknown helper ' . $method),
+        };
+        $receipt = $send(null);
+        $send('c1');
+
+        self::assertSame('job_1', $receipt->jobId);
+        self::assertSame('/v1/accounting/operations', $transport->target(0));
+        self::assertSame(
+            ['tenant_id' => 't', 'operation' => $operation, 'erp_id' => $erpId, 'idempotency_key' => 'reversal:1', 'payload' => $payload],
+            $transport->body(0),
+        );
+        self::assertSame('c1', $transport->body(1)['connection_id']);
+        self::assertContains($operation, Accounting::OPERATIONS);
+    }
+
+    public function testReversalRefusalsSurfaceTheirDecision(): void
+    {
+        $transport = new ScriptedTransport([
+            Clients::json(422, ['code' => 'accounting.capability_unsupported', 'request_id' => 'req_1']),
+            Clients::json(403, ['code' => 'accounting.operation_disabled', 'request_id' => 'req_2']),
+        ]);
+        $accounting = new Accounting(Clients::client($transport));
+        foreach ([
+            [fn() => $accounting->updatePayment('t', 'PAY-1', 'change:1', ['change_id' => 'C1', 'payment' => ['expected_revision' => 'deleted']]), RuntimeProblemException::DO_NOT_SYNC],
+            [fn() => $accounting->voidPayment('t', 'PAY-1', 'void:1', ['void_id' => 'V1', 'payment' => ['expected_revision' => '3']]), RuntimeProblemException::ASK_OPERATOR],
+        ] as [$call, $decision]) {
+            try {
+                $call();
+                self::fail('expected a problem');
+            } catch (RuntimeProblemException $problem) {
+                self::assertSame($decision, $problem->decision());
+            }
+        }
     }
 
     /** @return iterable<string, array{int, string, string}> */

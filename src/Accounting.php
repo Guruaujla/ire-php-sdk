@@ -166,7 +166,8 @@ final class Accounting
     /**
      * QuickBooks only (Xero answers 422 `accounting.capability_unsupported`;
      * void instead). A payment applied to the invoice stays, unapplied. The
-     * deleted invoice's `erp_id` is never reused.
+     * deleted invoice's `erp_id` is never reused. Disabled until qualified and
+     * enabled for the app.
      *
      * @param array<string, mixed> $payload `delete_id`, `invoice` with its `expected_revision` and `before_totals`
      */
@@ -181,19 +182,52 @@ final class Accounting
         return $this->execute('accounting.payment.create', $tenantId, $erpPaymentId, $idempotencyKey, $payload, $connectionId);
     }
 
-    /** @param array<string, mixed> $payload `void_id`, `payment` {expected_revision} */
+    /**
+     * QuickBooks voids the payment (it stays, with total 0.00; result `status`
+     * `voided`). Xero has no void, so it deletes the payment (result `status`
+     * `deleted`, `revision` `deleted`). Disabled until qualified and enabled
+     * for the app (403 `accounting.operation_disabled`). The call returns a
+     * 202 receipt; refusals arrive as the job's `error.code` when polled. The
+     * job fails with `accounting.unsupported_change` for a payment named by a
+     * refund written through the runtime, a deposited QuickBooks payment, a
+     * reconciled or batch Xero payment, or a QuickBooks delete of a voided
+     * payment; with `accounting.period_closed` for a closed period. Repeating
+     * the same reversal of a payment already voided or deleted completes with
+     * no write.
+     *
+     * @param array<string, mixed> $payload `void_id`, `payment` {expected_revision}
+     */
     public function voidPayment(string $tenantId, string $erpPaymentId, string $idempotencyKey, array $payload, ?string $connectionId = null): OperationReceipt
     {
         return $this->execute('accounting.payment.void', $tenantId, $erpPaymentId, $idempotencyKey, $payload, $connectionId);
     }
 
-    /** @param array<string, mixed> $payload `delete_id`, `payment` {expected_revision} */
+    /**
+     * Deletes the payment on QuickBooks and Xero (result `status` `deleted`).
+     * Same refusals as voidPayment(). The deleted payment's `erp_id` is never
+     * reused: a create under it is 409 `accounting.document_exists`. Disabled
+     * until qualified and enabled for the app.
+     *
+     * @param array<string, mixed> $payload `delete_id`, `payment` {expected_revision}
+     */
     public function deletePayment(string $tenantId, string $erpPaymentId, string $idempotencyKey, array $payload, ?string $connectionId = null): OperationReceipt
     {
         return $this->execute('accounting.payment.delete', $tenantId, $erpPaymentId, $idempotencyKey, $payload, $connectionId);
     }
 
-    /** @param array<string, mixed> $payload `change_id`, `payment` {expected_revision, and any of amount, date, payment_method, deposit_account, reference} */
+    /**
+     * QuickBooks only (Xero answers 422 `accounting.capability_unsupported`:
+     * delete the payment and create a new one under a new `erp_id`). A new
+     * amount is applied up to the invoice's open balance plus what the payment
+     * already applies, and the rest stays unapplied; a lower amount lowers
+     * the application with it. If QuickBooks still refuses the amount against
+     * the payment's charges (fault 6000), the job fails with
+     * `accounting.unsupported_change`. The result carries `unapplied_amount`
+     * and `invoice.revision`. Same refusals as voidPayment(); disabled until
+     * qualified and enabled for the app.
+     *
+     * @param array<string, mixed> $payload `change_id`, `payment` {expected_revision, and any of amount, date, payment_method, deposit_account, reference}
+     */
     public function updatePayment(string $tenantId, string $erpPaymentId, string $idempotencyKey, array $payload, ?string $connectionId = null): OperationReceipt
     {
         return $this->execute('accounting.payment.update', $tenantId, $erpPaymentId, $idempotencyKey, $payload, $connectionId);
