@@ -94,6 +94,30 @@ final class AccountingTest extends TestCase
         $a->updateSettings('t1', 'c1', null, 5);
     }
 
+    public function testCapabilitiesReadsTheConnectionAndSupportsChecksFlags(): void
+    {
+        $body = [
+            'operations' => [
+                ['operation' => 'accounting.payment.update', 'available' => false, 'reason' => 'provider_unsupported', 'alternative' => 'accounting.payment.delete'],
+                ['operation' => 'accounting.invoice.void', 'available' => true, 'reason' => null],
+            ],
+            'features' => [
+                ['feature' => 'invoice.reference', 'supported' => true],
+                ['feature' => 'invoice.update_lines', 'supported' => false],
+            ],
+        ];
+        $transport = new ScriptedTransport([Clients::json(200, $body)]);
+        $a = new Accounting(Clients::client($transport));
+        $caps = $a->capabilities('t1', 'c 1');
+        self::assertSame('/v1/accounting/connections/c%201/capabilities?tenant_id=t1', $transport->target(0));
+        self::assertTrue(Accounting::supports($caps, 'accounting.invoice.void'));
+        self::assertFalse(Accounting::supports($caps, 'accounting.payment.update'));
+        self::assertTrue(Accounting::supports($caps, 'invoice.reference'));
+        self::assertFalse(Accounting::supports($caps, 'invoice.update_lines'));
+        self::assertFalse(Accounting::supports($caps, 'unknown.feature'));
+        self::assertFalse(Accounting::supports([], 'invoice.reference'));
+    }
+
     public function testRejectsUnknownOperationsAndUnstableKeys(): void
     {
         foreach (['', '   ', str_repeat('k', 129)] as $key) {

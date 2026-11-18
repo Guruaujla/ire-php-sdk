@@ -485,6 +485,47 @@ final class Accounting
     }
 
     /**
+     * What this connection supports now, in provider-neutral names: every
+     * neutral operation with `available`, `reason` (provider_unsupported,
+     * not_offered_yet, not_enabled_for_app, disabled, disabled_for_tenant,
+     * unavailable; an open set), `alternative`, `performed_as` and
+     * `side_effects`, plus `features` (invoice.reference, invoice.update_lines,
+     * invoice.update_amounts_when_paid, invoice.lower_below_paid, ...) with
+     * `supported`. Show or hide actions from this, not from the provider name.
+     * Advisory: each write still runs its own checks.
+     *
+     * @return array<string, mixed>
+     */
+    public function capabilities(string $tenantId, string $connectionId): array
+    {
+        return ResponseReader::json($this->client->send('GET', ResponseReader::query(self::connectionPath($connectionId) . '/capabilities', ['tenant_id' => $tenantId])));
+    }
+
+    /**
+     * Whether `$name` is offered on a capabilities() answer: an operation
+     * (`accounting.payment.update`) that is `available`, or a feature
+     * (`invoice.reference`) that is `supported`. An unknown name is false.
+     *
+     * @param array<string, mixed> $capabilities a capabilities() answer
+     */
+    public static function supports(array $capabilities, string $name): bool
+    {
+        foreach (['operations' => ['operation', 'available'], 'features' => ['feature', 'supported']] as $list => [$key, $flag]) {
+            $entries = $capabilities[$list] ?? [];
+            if (! is_array($entries)) {
+                continue;
+            }
+            foreach ($entries as $entry) {
+                if (is_array($entry) && ($entry[$key] ?? null) === $name) {
+                    return ($entry[$flag] ?? false) === true;
+                }
+            }
+        }
+
+        return false;
+    }
+
+    /**
      * Per-connection sync settings: `sync_start_date`, enabled `record_types`
      * and the `revision` to send back on update. The provider's closing date
      * is read live on each write, not stored here.
