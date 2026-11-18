@@ -2,6 +2,15 @@
 
 Releases are published to `Guruaujla/ire-php-sdk` as `v` tags.
 
+## Unreleased
+
+- New `Activity` (`GET /v1/activity`): `list($tenantId, $filters)` returns
+  one page of the tenant's integration activity, newest first (operations
+  with their outcome and a customer-safe error message, document changes the
+  provider reported, connection changes); `each()` follows `next_cursor`.
+  Filters: `connection_id`, `erp_id`, `types` (string or list), `since`,
+  `until`, `limit`, `cursor`.
+
 ## 1.9.0
 
 - Docblocks of `Accounting::voidPayment()`, `deletePayment()`,

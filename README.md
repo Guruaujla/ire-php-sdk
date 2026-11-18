@@ -297,6 +297,26 @@ Errors throw `RuntimeProblemException`. Branch on `decision()`; for neutral
 
 New values may be added; treat an unknown one as `stop_and_reconcile`.
 
+### Activity log
+
+`Activity` reads the tenant's integration activity, newest first, to show your
+own customer: operations you sent with their outcome and a customer-safe error
+message, document changes the provider reported (an invoice paid in
+QuickBooks), and connection changes.
+
+```php
+use Ezee\IntegrationRuntime\Activity;
+
+$activity = new Activity($client);
+$page = $activity->list($tenantId, ['erp_id' => 'INV-00042', 'limit' => 20]);
+foreach ($activity->each($tenantId, ['types' => ['operation', 'document']], maxPages: 5) as $event) {
+    echo $event['occurred_at'], ' ', $event['summary'], PHP_EOL;
+}
+```
+
+Fields, filters and retention: `accounting-erp-screens.md`, "Integration
+activity log".
+
 ## QuickBooks operations (typed, deprecated)
 
 Deprecated since 1.3.0 in favour of `Accounting`; kept working and removed no
