@@ -4,6 +4,12 @@ Releases are published to `Guruaujla/ire-php-sdk` as `v` tags.
 
 ## Unreleased
 
+- New `QuickBooks::applyPrepayment` and `QuickBooks::unapplyPrepayment` for
+  the native `quickbooks.prepayment.apply` and `.unapply` (a full-line update
+  of the prepayment's Payment). QuickBooks now offers
+  `Accounting::applyPrepayment` and `Accounting::unapplyPrepayment`; both ship
+  disabled until qualified and enabled.
+
 - New `QuickBooks::createPrepayment` for the native
   `quickbooks.prepayment.create` (a Payment with no Line, held as unapplied
   customer credit). QuickBooks now offers `Accounting::createPrepayment`; it
