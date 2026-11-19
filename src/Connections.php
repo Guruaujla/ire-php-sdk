@@ -18,7 +18,7 @@ use Ezee\IntegrationRuntime\Internal\ResponseReader;
 final class Connections
 {
     /** The providers the public connect-session endpoint accepts. */
-    public const PROVIDER_KEYS = ['quickbooks', 'xero', 'google-meet'];
+    public const PROVIDER_KEYS = ['quickbooks', 'xero', 'google-meet', 'microsoft-teams'];
 
     public function __construct(private readonly Client $client) {}
 

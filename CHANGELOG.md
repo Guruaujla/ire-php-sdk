@@ -14,8 +14,8 @@ Releases are published to `Guruaujla/ire-php-sdk` as `v` tags.
   `refundPrepayment`, `voidPrepayment` (`createPrepayment` and
   `refundPrepayment` take the optional `$erpCreatedAt`). No provider offers them yet: the
   runtime answers `422 accounting.capability_unsupported`.
-- `Connections` accepts `google-meet` for connect, reconnect and disconnect
-  (Meetings API). For a meeting connection, pass `provider_account_id` to
+- `Connections` accepts `google-meet` and `microsoft-teams` for connect,
+  reconnect and disconnect (Meetings API). For a meeting connection, pass `provider_account_id` to
   disconnect (from `GET /v1/meetings/providers`); the accounting lookup does
   not find it.
 
@@ -25,8 +25,9 @@ Releases are published to `Guruaujla/ire-php-sdk` as `v` tags.
   (`external_ref` plus optional `title`, `start`, `end`, `timezone`,
   `access`), `end(..., $meetingRef)`, `operation($tenantId, $jobId)` and
   `get($tenantId, $connectionId, $meetingRef)`. Create and end return the
-  operation status (`200` finished or `202` running). Google Meet is the
-  first provider (no SDK change; its capabilities come from `providers()`).
+  operation status (`200` finished or `202` running). Google Meet and
+  Microsoft Teams are the providers (no SDK change; capabilities come from
+  `providers()`).
 
 - `Accounting::buildRequest()`, `execute()`, `createInvoice()`,
   `createPayment()`, `createRefund()`, `createCreditMemo()` and
