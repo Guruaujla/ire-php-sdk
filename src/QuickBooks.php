@@ -38,6 +38,7 @@ final class QuickBooks
         'quickbooks.payment.void' => ['erp.quickbooks.payment.voided', 1, 'erp.payment.voided', 'payment_void'],
         'quickbooks.payment.delete' => ['erp.quickbooks.payment.deleted', 1, 'erp.payment.deleted', 'payment_delete'],
         'quickbooks.payment.update' => ['erp.quickbooks.payment.updated', 1, 'erp.payment.updated', 'payment_update'],
+        'quickbooks.prepayment.create' => ['erp.quickbooks.prepayment.created', 1, 'erp.prepayment.created', 'prepayment'],
         'quickbooks.refund.create' => ['erp.quickbooks.refund.created', 3, 'erp.refund.created', 'refund_receipt'],
         'quickbooks.credit_memo.create' => ['erp.quickbooks.credit_memo.created', 1, 'erp.credit_memo.created', 'credit_memo'],
         'quickbooks.credit_memo.apply' => ['erp.quickbooks.credit_memo.applied', 1, 'erp.credit_memo.applied', 'credit_application'],
@@ -136,6 +137,12 @@ final class QuickBooks
     public function createPayment(string $tenantId, string $connectionId, string $erpPaymentId, string $idempotencyKey, array $payload): OperationReceipt
     {
         return $this->execute('quickbooks.payment.create', $tenantId, $connectionId, $erpPaymentId, $idempotencyKey, $payload);
+    }
+
+    /** @param array<string, mixed> $payload `provider_account_id`, `prepayment` (no Line: the whole amount is unapplied customer credit) */
+    public function createPrepayment(string $tenantId, string $connectionId, string $erpPrepaymentId, string $idempotencyKey, array $payload): OperationReceipt
+    {
+        return $this->execute('quickbooks.prepayment.create', $tenantId, $connectionId, $erpPrepaymentId, $idempotencyKey, $payload);
     }
 
     /** @param array<string, mixed> $payload `refund`, `original_invoice`, `original_payment`, `adjustment_verification`, `allocations`, ... */

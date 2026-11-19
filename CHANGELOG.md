@@ -4,6 +4,11 @@ Releases are published to `Guruaujla/ire-php-sdk` as `v` tags.
 
 ## Unreleased
 
+- New `QuickBooks::createPrepayment` for the native
+  `quickbooks.prepayment.create` (a Payment with no Line, held as unapplied
+  customer credit). QuickBooks now offers `Accounting::createPrepayment`; it
+  ships disabled until it is qualified and enabled.
+
 - New `Accounting` methods for customer prepayments (retainers and wallet
   top-ups): `createPrepayment`, `applyPrepayment`, `unapplyPrepayment`,
   `refundPrepayment`, `voidPrepayment` (`createPrepayment` and
