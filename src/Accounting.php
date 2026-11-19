@@ -41,6 +41,18 @@ final class Accounting
         'accounting.credit_memo.apply',
     ];
 
+    /**
+     * Creates that accept `erp_created_at`: the sync start date is compared
+     * with when the ERP created the document instead of its document date.
+     */
+    public const CREATED_AT_OPERATIONS = [
+        'accounting.invoice.create',
+        'accounting.payment.create',
+        'accounting.refund.create',
+        'accounting.credit_memo.create',
+        'accounting.credit_memo.apply',
+    ];
+
     /** Document types the refresh read covers. */
     public const REFRESH_DOCUMENT_TYPES = ['invoice', 'payment'];
 
@@ -59,7 +71,11 @@ final class Accounting
      * Build the exact operation body without sending it, e.g. to persist it
      * before the first attempt so a retry can resend identical bytes.
      * `$connectionId` is optional: without it the runtime uses the tenant's
-     * one active accounting connection.
+     * one active accounting connection. `$erpCreatedAt` (creates only) is when
+     * the ERP created the document; pass it in the tenant's timezone. The
+     * sync start date is then compared with its calendar date, so a document
+     * created after the connection but dated earlier is admitted. It is not
+     * part of the request identity: adding it to a resend keeps the same key.
      *
      * @param array<string, mixed> $payload
      * @return array<string, mixed>
@@ -71,6 +87,7 @@ final class Accounting
         string $idempotencyKey,
         array $payload,
         ?string $connectionId = null,
+        ?\DateTimeInterface $erpCreatedAt = null,
     ): array {
         if (! in_array($operation, self::OPERATIONS, true)) {
             throw new \InvalidArgumentException('Unsupported accounting operation: ' . $operation);
@@ -96,6 +113,13 @@ final class Accounting
             ResponseReader::requireNonEmpty('connectionId', $connectionId);
             $request['connection_id'] = $connectionId;
         }
+        if ($erpCreatedAt !== null) {
+            if (! in_array($operation, self::CREATED_AT_OPERATIONS, true)) {
+                throw new \InvalidArgumentException('erpCreatedAt is accepted only on creates: ' . implode(', ', self::CREATED_AT_OPERATIONS));
+            }
+            // RFC 3339 in the value's own timezone, so its calendar date is the tenant's.
+            $request['erp_created_at'] = $erpCreatedAt->format(\DATE_RFC3339);
+        }
 
         return $request;
     }
@@ -113,9 +137,9 @@ final class Accounting
     }
 
     /** @param array<string, mixed> $payload */
-    public function execute(string $operation, string $tenantId, string $erpId, string $idempotencyKey, array $payload, ?string $connectionId = null): OperationReceipt
+    public function execute(string $operation, string $tenantId, string $erpId, string $idempotencyKey, array $payload, ?string $connectionId = null, ?\DateTimeInterface $erpCreatedAt = null): OperationReceipt
     {
-        return $this->submit(self::buildRequest($operation, $tenantId, $erpId, $idempotencyKey, $payload, $connectionId));
+        return $this->submit(self::buildRequest($operation, $tenantId, $erpId, $idempotencyKey, $payload, $connectionId, $erpCreatedAt));
     }
 
     /**
@@ -146,9 +170,9 @@ final class Accounting
     }
 
     /** @param array<string, mixed> $payload `invoice`, `expected_totals` */
-    public function createInvoice(string $tenantId, string $erpInvoiceId, string $idempotencyKey, array $payload, ?string $connectionId = null): OperationReceipt
+    public function createInvoice(string $tenantId, string $erpInvoiceId, string $idempotencyKey, array $payload, ?string $connectionId = null, ?\DateTimeInterface $erpCreatedAt = null): OperationReceipt
     {
-        return $this->execute('accounting.invoice.create', $tenantId, $erpInvoiceId, $idempotencyKey, $payload, $connectionId);
+        return $this->execute('accounting.invoice.create', $tenantId, $erpInvoiceId, $idempotencyKey, $payload, $connectionId, $erpCreatedAt);
     }
 
     /** @param array<string, mixed> $payload `change_id`, `invoice`, `expected_totals`, `before` */
@@ -177,9 +201,9 @@ final class Accounting
     }
 
     /** @param array<string, mixed> $payload `payment`, `invoice` {erp_id, expected_revision, expected_balance} */
-    public function createPayment(string $tenantId, string $erpPaymentId, string $idempotencyKey, array $payload, ?string $connectionId = null): OperationReceipt
+    public function createPayment(string $tenantId, string $erpPaymentId, string $idempotencyKey, array $payload, ?string $connectionId = null, ?\DateTimeInterface $erpCreatedAt = null): OperationReceipt
     {
-        return $this->execute('accounting.payment.create', $tenantId, $erpPaymentId, $idempotencyKey, $payload, $connectionId);
+        return $this->execute('accounting.payment.create', $tenantId, $erpPaymentId, $idempotencyKey, $payload, $connectionId, $erpCreatedAt);
     }
 
     /**
@@ -234,21 +258,21 @@ final class Accounting
     }
 
     /** @param array<string, mixed> $payload `refund`, `expected_totals`, `original_invoice`, `original_payment` */
-    public function createRefund(string $tenantId, string $erpRefundId, string $idempotencyKey, array $payload, ?string $connectionId = null): OperationReceipt
+    public function createRefund(string $tenantId, string $erpRefundId, string $idempotencyKey, array $payload, ?string $connectionId = null, ?\DateTimeInterface $erpCreatedAt = null): OperationReceipt
     {
-        return $this->execute('accounting.refund.create', $tenantId, $erpRefundId, $idempotencyKey, $payload, $connectionId);
+        return $this->execute('accounting.refund.create', $tenantId, $erpRefundId, $idempotencyKey, $payload, $connectionId, $erpCreatedAt);
     }
 
     /** @param array<string, mixed> $payload `credit_memo`, `expected_totals`, `original_invoice` */
-    public function createCreditMemo(string $tenantId, string $erpCreditMemoId, string $idempotencyKey, array $payload, ?string $connectionId = null): OperationReceipt
+    public function createCreditMemo(string $tenantId, string $erpCreditMemoId, string $idempotencyKey, array $payload, ?string $connectionId = null, ?\DateTimeInterface $erpCreatedAt = null): OperationReceipt
     {
-        return $this->execute('accounting.credit_memo.create', $tenantId, $erpCreditMemoId, $idempotencyKey, $payload, $connectionId);
+        return $this->execute('accounting.credit_memo.create', $tenantId, $erpCreditMemoId, $idempotencyKey, $payload, $connectionId, $erpCreatedAt);
     }
 
     /** @param array<string, mixed> $payload `application`, `credit_memo` {erp_id}, `invoice` with its `before_totals` */
-    public function applyCreditMemo(string $tenantId, string $erpApplicationId, string $idempotencyKey, array $payload, ?string $connectionId = null): OperationReceipt
+    public function applyCreditMemo(string $tenantId, string $erpApplicationId, string $idempotencyKey, array $payload, ?string $connectionId = null, ?\DateTimeInterface $erpCreatedAt = null): OperationReceipt
     {
-        return $this->execute('accounting.credit_memo.apply', $tenantId, $erpApplicationId, $idempotencyKey, $payload, $connectionId);
+        return $this->execute('accounting.credit_memo.apply', $tenantId, $erpApplicationId, $idempotencyKey, $payload, $connectionId, $erpCreatedAt);
     }
 
     /**

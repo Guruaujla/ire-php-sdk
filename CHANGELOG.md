@@ -4,6 +4,19 @@ Releases are published to `Guruaujla/ire-php-sdk` as `v` tags.
 
 ## Unreleased
 
+- `Accounting::buildRequest()`, `execute()`, `createInvoice()`,
+  `createPayment()`, `createRefund()`, `createCreditMemo()` and
+  `applyCreditMemo()` take an optional `?DateTimeInterface $erpCreatedAt`
+  (last argument): when the ERP created the document. Sent as
+  `erp_created_at` in the value's own timezone, it makes the runtime compare
+  the sync start date with the creation date instead of the document date.
+  Refused on non-create operations. New `Accounting::CREATED_AT_OPERATIONS`.
+
+- New `OutboxDecision`: `for($e)`, `forJobError($code)` and
+  `fromDecision($decision)` map a send failure or a failed job onto an ERP
+  outbox row's next state (`pending`, `failed`, `skipped`, `needs_person`).
+  See accounting-operations.md "Reliable delivery: the outbox pattern".
+
 - New `Providers` (`GET /v1/providers`): `list($tenantId)` returns every
   provider your app can connect (`provider_key`, `display_name`, `category`,
   `enabled`); `inCategory($tenantId, $category)` filters by unified API
