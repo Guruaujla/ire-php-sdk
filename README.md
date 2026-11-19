@@ -297,6 +297,24 @@ Errors throw `RuntimeProblemException`. Branch on `decision()`; for neutral
 
 New values may be added; treat an unknown one as `stop_and_reconcile`.
 
+### Available providers
+
+`Providers` lists every provider your app can connect, with its `category`
+(the unified API that serves it: `accounting` today, `meetings` next) and
+whether your app can connect it now (`enabled`). Render this list on your
+integrations screen: a provider the runtime adds later appears without a code
+change.
+
+```php
+use Ezee\IntegrationRuntime\Providers;
+
+foreach ((new Providers($client))->inCategory($tenantId, 'accounting') as $p) {
+    echo $p['display_name'], $p['enabled'] ? '' : ' (not available)', PHP_EOL;
+}
+```
+
+Start a connection with `Connections::start($tenantId, $returnUrl, $state, $p['provider_key'])`.
+
 ### Activity log
 
 `Activity` reads the tenant's integration activity, newest first, to show your

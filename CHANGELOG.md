@@ -4,6 +4,11 @@ Releases are published to `Guruaujla/ire-php-sdk` as `v` tags.
 
 ## Unreleased
 
+- New `Providers` (`GET /v1/providers`): `list($tenantId)` returns every
+  provider your app can connect (`provider_key`, `display_name`, `category`,
+  `enabled`); `inCategory($tenantId, $category)` filters by unified API
+  (`accounting`, later `meetings`). New providers appear without an SDK change.
+
 - New `Activity` (`GET /v1/activity`): `list($tenantId, $filters)` returns
   one page of the tenant's integration activity, newest first (operations
   with their outcome and a customer-safe error message, document changes the
