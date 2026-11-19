@@ -315,6 +315,26 @@ foreach ((new Providers($client))->inCategory($tenantId, 'accounting') as $p) {
 
 Start a connection with `Connections::start($tenantId, $returnUrl, $state, $p['provider_key'])`.
 
+### Meetings
+
+`Meetings` creates and ends video meetings on a tenant's meeting connection
+(Google Meet first, then Teams and Zoom) with the same code for every
+provider. Requests name your own meeting id (`external_ref`).
+
+```php
+use Ezee\IntegrationRuntime\Meetings;
+
+$meetings = new Meetings($client);
+$connections = $meetings->providers($tenantId)['connections'];
+$op = $meetings->create($tenantId, $connectionId, "appointment:{$id}:create", [
+    'external_ref' => "appointment-{$id}",
+    'title' => 'Site visit',
+]);
+// 'completed' with $op['meeting']['join_url'], or poll $meetings->operation($tenantId, $op['job_id']).
+```
+
+Steps, capabilities, retries and errors: `meetings.md` in the runtime docs.
+
 ### Activity log
 
 `Activity` reads the tenant's integration activity, newest first, to show your

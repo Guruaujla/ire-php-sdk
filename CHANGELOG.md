@@ -4,6 +4,15 @@ Releases are published to `Guruaujla/ire-php-sdk` as `v` tags.
 
 ## Unreleased
 
+- New `Meetings` (`/v1/meetings/*`), the provider-neutral Meetings API:
+  `providers($tenantId)` (capabilities and the tenant's active meeting
+  connections), `create($tenantId, $connectionId, $idempotencyKey, $meeting)`
+  (`external_ref` plus optional `title`, `start`, `end`, `timezone`,
+  `access`), `end(..., $meetingRef)`, `operation($tenantId, $jobId)` and
+  `get($tenantId, $connectionId, $meetingRef)`. Create and end return the
+  operation status (`200` finished or `202` running). No provider is live
+  yet; Google Meet is next.
+
 - `Accounting::buildRequest()`, `execute()`, `createInvoice()`,
   `createPayment()`, `createRefund()`, `createCreditMemo()` and
   `applyCreditMemo()` take an optional `?DateTimeInterface $erpCreatedAt`

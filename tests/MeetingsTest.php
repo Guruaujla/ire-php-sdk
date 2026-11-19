@@ -1,0 +1,135 @@
+<?php
+
+declare(strict_types=1);
+
+namespace Ezee\IntegrationRuntime\Tests;
+
+use Ezee\IntegrationRuntime\Exception\RuntimeProblemException;
+use Ezee\IntegrationRuntime\Meetings;
+use Ezee\IntegrationRuntime\Tests\Support\Clients;
+use Ezee\IntegrationRuntime\Tests\Support\ScriptedTransport;
+use PHPUnit\Framework\Attributes\CoversClass;
+use PHPUnit\Framework\TestCase;
+
+#[CoversClass(Meetings::class)]
+final class MeetingsTest extends TestCase
+{
+    /** @return array<string, mixed> */
+    private static function operationStatus(string $status): array
+    {
+        return [
+            'job_id' => 'job_1',
+            'operation' => 'meeting.create',
+            'meeting_ref' => 'mtg_1',
+            'external_ref' => 'appt-42',
+            'provider_key' => 'google-meet',
+            'status' => $status,
+            'idempotent_replay' => false,
+            'existing_meeting' => false,
+            'polling_url' => '/v1/meetings/operations/job_1?tenant_id=t1',
+            'error' => null,
+            'meeting' => null,
+        ];
+    }
+
+    /** @return array<string, mixed> */
+    private static function body(ScriptedTransport $transport, int $i): array
+    {
+        $decoded = json_decode((string) $transport->requests[$i]->getBody(), true);
+        self::assertIsArray($decoded);
+
+        /** @var array<string, mixed> $decoded */
+        return $decoded;
+    }
+
+    public function testProvidersSendsTenant(): void
+    {
+        $transport = new ScriptedTransport([Clients::json(200, ['providers' => [], 'connections' => []])]);
+        $out = (new Meetings(Clients::client($transport)))->providers('t1');
+
+        self::assertSame([], $out['providers']);
+        self::assertSame('GET', $transport->requests[0]->getMethod());
+        self::assertSame('/v1/meetings/providers?tenant_id=t1', $transport->target(0));
+    }
+
+    public function testCreatePostsNeutralBodyAndAcceptsAccepted(): void
+    {
+        $transport = new ScriptedTransport([Clients::json(202, self::operationStatus('queued'))]);
+        $out = (new Meetings(Clients::client($transport)))->create('t1', 'conn_1', 'appt-42:create', [
+            'external_ref' => 'appt-42',
+            'title' => 'Site visit',
+        ]);
+
+        self::assertSame('queued', $out['status']);
+        self::assertSame('POST', $transport->requests[0]->getMethod());
+        self::assertSame('/v1/meetings/operations', $transport->target(0));
+        self::assertSame([
+            'operation' => 'meeting.create',
+            'tenant_id' => 't1',
+            'connection_id' => 'conn_1',
+            'idempotency_key' => 'appt-42:create',
+            'meeting' => ['external_ref' => 'appt-42', 'title' => 'Site visit'],
+        ], self::body($transport, 0));
+    }
+
+    public function testCreateAcceptsCompleted(): void
+    {
+        $transport = new ScriptedTransport([Clients::json(200, self::operationStatus('completed'))]);
+        $out = (new Meetings(Clients::client($transport)))->create('t1', 'conn_1', 'k', ['external_ref' => 'appt-42']);
+
+        self::assertSame('completed', $out['status']);
+    }
+
+    public function testCreateRequiresExternalRef(): void
+    {
+        $this->expectException(\InvalidArgumentException::class);
+        (new Meetings(Clients::client(new ScriptedTransport([]))))->create('t1', 'conn_1', 'k', ['title' => 'x']);
+    }
+
+    public function testEndPostsMeetingRef(): void
+    {
+        $transport = new ScriptedTransport([Clients::json(202, self::operationStatus('queued'))]);
+        (new Meetings(Clients::client($transport)))->end('t1', 'conn_1', 'appt-42:end', 'mtg_1');
+
+        self::assertSame([
+            'operation' => 'meeting.end',
+            'tenant_id' => 't1',
+            'connection_id' => 'conn_1',
+            'idempotency_key' => 'appt-42:end',
+            'meeting_ref' => 'mtg_1',
+        ], self::body($transport, 0));
+    }
+
+    public function testOperationAndGetPaths(): void
+    {
+        $transport = new ScriptedTransport([
+            Clients::json(200, self::operationStatus('completed')),
+            Clients::json(200, ['meeting_ref' => 'mtg 1', 'status' => 'active']),
+        ]);
+        $meetings = new Meetings(Clients::client($transport));
+        $meetings->operation('t1', 'job_1');
+        $meetings->get('t1', 'conn/1', 'mtg 1');
+
+        self::assertSame('/v1/meetings/operations/job_1?tenant_id=t1', $transport->target(0));
+        self::assertSame('/v1/meetings/connections/conn%2F1/meetings/mtg%201?tenant_id=t1', $transport->target(1));
+    }
+
+    public function testOperationAcceptsStillRunning(): void
+    {
+        $transport = new ScriptedTransport([Clients::json(202, self::operationStatus('processing'))]);
+        $out = (new Meetings(Clients::client($transport)))->operation('t1', 'job_1');
+
+        self::assertSame('processing', $out['status']);
+    }
+
+    public function testProblemResponseThrows(): void
+    {
+        $transport = new ScriptedTransport([Clients::json(422, [
+            'code' => 'meetings.capability_unsupported',
+            'title' => 'The provider cannot apply this field',
+            'field' => 'access',
+        ])]);
+        $this->expectException(RuntimeProblemException::class);
+        (new Meetings(Clients::client($transport)))->create('t1', 'conn_1', 'k', ['external_ref' => 'a', 'access' => 'open']);
+    }
+}
