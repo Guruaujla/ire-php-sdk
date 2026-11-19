@@ -4,6 +4,12 @@ Releases are published to `Guruaujla/ire-php-sdk` as `v` tags.
 
 ## Unreleased
 
+- New `Accounting` methods for customer prepayments (retainers and wallet
+  top-ups): `createPrepayment`, `applyPrepayment`, `unapplyPrepayment`,
+  `refundPrepayment`, `voidPrepayment` (`createPrepayment` and
+  `refundPrepayment` take the optional `$erpCreatedAt`). No provider offers them yet: the
+  runtime answers `422 accounting.capability_unsupported`.
+
 - New `Meetings` (`/v1/meetings/*`), the provider-neutral Meetings API:
   `providers($tenantId)` (capabilities and the tenant's active meeting
   connections), `create($tenantId, $connectionId, $idempotencyKey, $meeting)`

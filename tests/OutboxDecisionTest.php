@@ -27,6 +27,8 @@ final class OutboxDecisionTest extends TestCase
         'accounting.refund.create',
         'accounting.credit_memo.create',
         'accounting.credit_memo.apply',
+        'accounting.prepayment.create',
+        'accounting.prepayment.refund',
     ];
 
     private const EXPECTED = [

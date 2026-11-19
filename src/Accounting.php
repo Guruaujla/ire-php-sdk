@@ -39,6 +39,11 @@ final class Accounting
         'accounting.refund.create',
         'accounting.credit_memo.create',
         'accounting.credit_memo.apply',
+        'accounting.prepayment.create',
+        'accounting.prepayment.apply',
+        'accounting.prepayment.unapply',
+        'accounting.prepayment.refund',
+        'accounting.prepayment.void',
     ];
 
     /**
@@ -51,6 +56,8 @@ final class Accounting
         'accounting.refund.create',
         'accounting.credit_memo.create',
         'accounting.credit_memo.apply',
+        'accounting.prepayment.create',
+        'accounting.prepayment.refund',
     ];
 
     /** Document types the refresh read covers. */
@@ -273,6 +280,63 @@ final class Accounting
     public function applyCreditMemo(string $tenantId, string $erpApplicationId, string $idempotencyKey, array $payload, ?string $connectionId = null, ?\DateTimeInterface $erpCreatedAt = null): OperationReceipt
     {
         return $this->execute('accounting.credit_memo.apply', $tenantId, $erpApplicationId, $idempotencyKey, $payload, $connectionId, $erpCreatedAt);
+    }
+
+    /**
+     * Records money received before its invoice (a retainer or wallet top-up)
+     * as customer credit: a QuickBooks unapplied payment, a Xero overpayment.
+     * Not offered yet: the request is refused with 422 `accounting.capability_unsupported`
+     * until the provider's prepayment writes ship and are enabled.
+     *
+     * @param array<string, mixed> $payload `prepayment` {date, amount, currency, customer {erp_id}, deposit_account?, payment_method?, reference?, private_note?}
+     */
+    public function createPrepayment(string $tenantId, string $erpPrepaymentId, string $idempotencyKey, array $payload, ?string $connectionId = null, ?\DateTimeInterface $erpCreatedAt = null): OperationReceipt
+    {
+        return $this->execute('accounting.prepayment.create', $tenantId, $erpPrepaymentId, $idempotencyKey, $payload, $connectionId, $erpCreatedAt);
+    }
+
+    /**
+     * Applies part or all of a prepayment's remaining credit to an invoice.
+     * QuickBooks with "Automatically apply credits" on may already have applied
+     * it; the result reports the applications QuickBooks holds.
+     *
+     * @param array<string, mixed> $payload `prepayment` {erp_id}, `invoice` {erp_id}, `application` {amount, date?}
+     */
+    public function applyPrepayment(string $tenantId, string $erpApplicationId, string $idempotencyKey, array $payload, ?string $connectionId = null): OperationReceipt
+    {
+        return $this->execute('accounting.prepayment.apply', $tenantId, $erpApplicationId, $idempotencyKey, $payload, $connectionId);
+    }
+
+    /**
+     * Reverses one application: the invoice reopens and the credit returns to
+     * the prepayment.
+     *
+     * @param array<string, mixed> $payload `unapply_id`
+     */
+    public function unapplyPrepayment(string $tenantId, string $erpApplicationId, string $idempotencyKey, array $payload, ?string $connectionId = null): OperationReceipt
+    {
+        return $this->execute('accounting.prepayment.unapply', $tenantId, $erpApplicationId, $idempotencyKey, $payload, $connectionId);
+    }
+
+    /**
+     * Returns unused prepayment credit to the customer.
+     *
+     * @param array<string, mixed> $payload `prepayment` {erp_id}, `refund` {date, amount, refund_account, reference?}
+     */
+    public function refundPrepayment(string $tenantId, string $erpRefundId, string $idempotencyKey, array $payload, ?string $connectionId = null, ?\DateTimeInterface $erpCreatedAt = null): OperationReceipt
+    {
+        return $this->execute('accounting.prepayment.refund', $tenantId, $erpRefundId, $idempotencyKey, $payload, $connectionId, $erpCreatedAt);
+    }
+
+    /**
+     * QuickBooks only (Xero cannot delete a prepayment: refund the remaining
+     * credit instead). Refused while any application or refund is open.
+     *
+     * @param array<string, mixed> $payload `void_id`
+     */
+    public function voidPrepayment(string $tenantId, string $erpPrepaymentId, string $idempotencyKey, array $payload, ?string $connectionId = null): OperationReceipt
+    {
+        return $this->execute('accounting.prepayment.void', $tenantId, $erpPrepaymentId, $idempotencyKey, $payload, $connectionId);
     }
 
     /**
