@@ -238,6 +238,7 @@ final class AccountingTest extends TestCase
         yield 'unknown 400' => [400, 'accounting.something_new', RuntimeProblemException::STOP_AND_RECONCILE];
         yield 'not found' => [404, 'accounting.connection_not_found', RuntimeProblemException::FIX_REQUEST];
         yield 'connection exists' => [409, 'accounting.connection_exists', RuntimeProblemException::FIX_SETUP];
+        yield 'reconnect required' => [409, 'accounting.reconnect_required', RuntimeProblemException::FIX_SETUP];
         yield 'native refusal 422' => [422, 'accounting.provider_refused', RuntimeProblemException::FIX_REQUEST];
         yield 'native refusal 409' => [409, 'accounting.provider_refused', RuntimeProblemException::STOP_AND_RECONCILE];
     }

@@ -4,6 +4,11 @@ Releases are published to `Guruaujla/ire-php-sdk` as `v` tags.
 
 ## Unreleased
 
+- `RuntimeProblemException::decision()` decides `fix_setup` for the new
+  `accounting.reconnect_required` (409): the connection's grant lacks a scope
+  the operation needs (a Xero connection consented before prepayments needs
+  `accounting.banktransactions` for `Accounting::createPrepayment`).
+  Reconnect, then resend the same request. `missing_scopes` names the scopes.
 - New `Meetings::artifacts($tenantId, $connectionId, $meetingRef)`: a
   meeting's recording and transcript links and call times after it
   (`GET /v1/meetings/connections/{id}/meetings/{meeting_ref}/artifacts`).

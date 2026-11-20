@@ -65,6 +65,7 @@ final class RuntimeProblemException extends \RuntimeException
         'accounting.no_accounting_connection' => self::FIX_SETUP,
         'accounting.multiple_accounting_connections' => self::FIX_SETUP,
         'accounting.connection_exists' => self::FIX_SETUP,
+        'accounting.reconnect_required' => self::FIX_SETUP,
         'accounting.revision_conflict' => self::REVIEW_AND_RESUBMIT,
         'accounting.amount_exceeded' => self::REVIEW_AND_RESUBMIT,
         'accounting.invoice_has_payment' => self::REVIEW_AND_RESUBMIT,
