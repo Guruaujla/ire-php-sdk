@@ -367,4 +367,46 @@ final class AccountingBulkOnboardingTest extends TestCase
             self::assertSame('accounting.snapshot_not_found', $problem->problemCode);
         }
     }
+
+    // ---- prepayment records --------------------------------------------------
+
+    public function testPrepaymentRecordsListMatchAndBindOnTheRecordsRoutes(): void
+    {
+        $transport = new ScriptedTransport(array_fill(0, 3, Clients::json(200, ['records' => [], 'next_cursor' => null, 'results' => []])));
+        $a = new Accounting(Clients::client($transport));
+        $a->listRecords('t1', 'c 1', 'prepayment', customer: 'CUST 1');
+        $a->matchRecords('t1', 'c 1', 'prepayment', [['erp_id' => 'PP-1', 'name' => 'Opening', 'customer' => 'CUST 1', 'amount' => '500.00']]);
+        $a->bindRecords('t1', 'c 1', 'prepayment', [['erp_id' => 'PP-1', 'provider_ref' => '91', 'customer' => 'CUST 1']]);
+
+        $base = self::C . '/records/prepayment';
+        self::assertSame([
+            $base . '?tenant_id=t1&customer=CUST%201',
+            $base . '/match',
+            $base . '/bind',
+        ], array_map(fn(int $i) => $transport->target($i), array_keys($transport->requests)));
+        self::assertSame(
+            ['tenant_id' => 't1', 'bindings' => [['erp_id' => 'PP-1', 'provider_ref' => '91', 'customer' => 'CUST 1']]],
+            $transport->body(2),
+        );
+    }
+
+    /** Bind jobs and snapshots do not cover prepayments. */
+    public function testPrepaymentBindJobsAndSnapshotsAreRefusedBeforeSending(): void
+    {
+        $transport = new ScriptedTransport([]);
+        $a = new Accounting(Clients::client($transport));
+        foreach ([
+            fn() => $a->startBindJob('t', 'c', 'prepayment', [['erp_id' => 'X', 'provider_ref' => '1']]),
+            fn() => $a->bindJobResults('t', 'c', 'prepayment', 'job_1'),
+            fn() => $a->startSnapshot('t', 'c', 'prepayment'),
+        ] as $call) {
+            try {
+                $call();
+                self::fail('accepted prepayment');
+            } catch (\InvalidArgumentException) {
+                self::addToAssertionCount(1);
+            }
+        }
+        self::assertSame([], $transport->requests);
+    }
 }

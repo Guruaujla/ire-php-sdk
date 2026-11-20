@@ -66,8 +66,15 @@ final class Accounting
     /** Documents {@see pdf()} can download. */
     public const PDF_DOCUMENT_TYPES = ['invoice', 'credit_memo'];
 
-    /** Provider record types the onboarding list, match and bind cover. */
-    public const RECORD_ENTITIES = ['customer', 'item', 'tax_code'];
+    /**
+     * Provider record types the onboarding list, match and bind cover.
+     * `prepayment` is a customer's open credit in the provider (an opening
+     * balance entered there), bound to an ERP prepayment id.
+     */
+    public const RECORD_ENTITIES = ['customer', 'item', 'tax_code', 'prepayment'];
+
+    /** Record types {@see startBindJob()} and {@see bindJobResults()} accept. */
+    public const BIND_JOB_ENTITIES = ['customer', 'item', 'tax_code'];
 
     /** Record types {@see startSnapshot()} and {@see latestSnapshot()} accept. */
     public const SNAPSHOT_ENTITIES = ['customer', 'item'];
@@ -672,13 +679,21 @@ final class Accounting
      * contains `@`, otherwise a name prefix (at least 3 characters). A
      * cursor only works with the source that issued it.
      *
+     * Prepayments (`$entity` `prepayment`): `$customer` is required, the ERP
+     * customer id (bound first) whose open credits to list, read live from
+     * the provider (QuickBooks Payments with unapplied amount, Xero
+     * Overpayments with remaining credit). Each record also carries
+     * `credit_type`, `customer_provider_ref`, `currency`, `date`,
+     * `reference`, `total_amount`, `open_amount` and `bound_erp_id`. An unbound
+     * customer answers 409 `accounting.mapping_missing`.
+     *
      * @return array<string, mixed>
      */
-    public function listRecords(string $tenantId, string $connectionId, string $entity, ?string $cursor = null, ?int $limit = null, ?string $source = null, ?string $q = null): array
+    public function listRecords(string $tenantId, string $connectionId, string $entity, ?string $cursor = null, ?int $limit = null, ?string $source = null, ?string $q = null, ?string $customer = null): array
     {
         return ResponseReader::json($this->client->send('GET', ResponseReader::query(
             self::recordsPath($connectionId, $entity),
-            ['tenant_id' => $tenantId, 'cursor' => $cursor, 'limit' => $limit, 'source' => $source, 'q' => $q],
+            ['tenant_id' => $tenantId, 'cursor' => $cursor, 'limit' => $limit, 'source' => $source, 'q' => $q, 'customer' => $customer],
         )));
     }
 
@@ -704,7 +719,11 @@ final class Accounting
      * `accounting.snapshot_not_ready`. `snapshot` and `live` force one source.
      * The response names the `source` it used and the snapshot's `as_of`.
      *
-     * @param list<array<string, mixed>> $records customers {erp_id, name, email?, tax_number?, account_number?}; items {erp_id, name, sku?}; tax codes {erp_id, name, rate_percent?}
+     * Prepayments: at most 25 records `{erp_id, name, customer, amount?}`,
+     * matched against the customer's open credits by amount (match reasons
+     * `customer`, `amount`); a prepayment is only ever `suggested`.
+     *
+     * @param list<array<string, mixed>> $records customers {erp_id, name, email?, tax_number?, account_number?}; items {erp_id, name, sku?}; tax codes {erp_id, name, rate_percent?}; prepayments {erp_id, name, customer, amount?}
      * @return array<string, mixed>
      */
     public function matchRecords(string $tenantId, string $connectionId, string $entity, array $records, ?string $source = null): array
@@ -728,7 +747,20 @@ final class Accounting
      * (`errors` names each repeat) before anything is bound. For tax codes,
      * preselect the record's `suggested_treatment` as `treatment`.
      *
-     * @param list<array<string, mixed>> $bindings each {erp_id, provider_ref, treatment?}
+     * Prepayments: each row `{erp_id, provider_ref, customer}` links a credit
+     * entered in the provider to the ERP prepayment id, after the runtime
+     * reads it (same customer, CAD, open credit, not held by another ERP
+     * id). A bound row carries `prepayment` (`origin`, `change`,
+     * `previous_provider_ref`, `open_amount`, `total_amount`); then
+     * applyPrepayment() and unapplyPrepayment() work on that id (refund and
+     * void are not offered yet). Refusal reasons add `customer_mismatch`,
+     * `no_open_credit`, `has_applications` (re-bind after an apply),
+     * `create_failed` (bind under a new erp_id), `currency_unknown` and
+     * `pending_change` (a write in flight may hold the credit, or an apply
+     * of the id is in flight; retry). createPrepayment() under a bound id is refused
+     * with 409 `accounting.document_exists`.
+     *
+     * @param list<array<string, mixed>> $bindings each {erp_id, provider_ref, treatment?, customer?}
      * @return array<string, mixed>
      */
     public function bindRecords(string $tenantId, string $connectionId, string $entity, array $bindings): array
@@ -790,7 +822,7 @@ final class Accounting
      */
     public function startBindJob(string $tenantId, string $connectionId, string $entity, array $bindings): array
     {
-        return ResponseReader::json($this->client->send('POST', self::recordsPath($connectionId, $entity) . '/bind-jobs', ['tenant_id' => $tenantId, 'bindings' => $bindings]), [202]);
+        return ResponseReader::json($this->client->send('POST', self::bindJobPath($connectionId, $entity), ['tenant_id' => $tenantId, 'bindings' => $bindings]), [202]);
     }
 
     /**
@@ -809,7 +841,7 @@ final class Accounting
         ResponseReader::requireNonEmpty('jobId', $jobId);
 
         return ResponseReader::json($this->client->send('GET', ResponseReader::query(
-            self::recordsPath($connectionId, $entity) . '/bind-jobs/' . rawurlencode($jobId) . '/results',
+            self::bindJobPath($connectionId, $entity) . '/' . rawurlencode($jobId) . '/results',
             ['tenant_id' => $tenantId, 'cursor' => $cursor],
         )));
     }
@@ -836,6 +868,15 @@ final class Accounting
         }
 
         return self::recordsPath($connectionId, $entity) . '/snapshots';
+    }
+
+    private static function bindJobPath(string $connectionId, string $entity): string
+    {
+        if (! in_array($entity, self::BIND_JOB_ENTITIES, true)) {
+            throw new \InvalidArgumentException('entity must be one of ' . implode(', ', self::BIND_JOB_ENTITIES));
+        }
+
+        return self::recordsPath($connectionId, $entity) . '/bind-jobs';
     }
 
     private static function recordsPath(string $connectionId, string $entity): string

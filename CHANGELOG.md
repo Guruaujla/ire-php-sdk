@@ -4,6 +4,13 @@ Releases are published to `Guruaujla/ire-php-sdk` as `v` tags.
 
 ## Unreleased
 
+- `Accounting::RECORD_ENTITIES` gains `prepayment`: `listRecords` (new
+  optional `$customer`, required for prepayments), `matchRecords` and
+  `bindRecords` search a customer's open credits in QuickBooks or Xero and
+  bind one entered there by hand (an opening balance) to an ERP prepayment
+  id, so `applyPrepayment` and `unapplyPrepayment` work on it (refund and
+  void are not offered yet). New `BIND_JOB_ENTITIES`: `startBindJob` and
+  `bindJobResults` now refuse `prepayment` before sending.
 - `WebhookEvent` knows `meeting.artifacts_ready` (`WebhookEvent::MEETING_ARTIFACTS_READY`):
   `data.meeting` is on the new `$meeting` property, with `meetingRef()` and
   `meetingArtifactsStage()` (`available` or `final`); `connectionId()` also
