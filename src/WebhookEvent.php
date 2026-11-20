@@ -7,8 +7,9 @@ namespace Ezee\IntegrationRuntime;
 /**
  * A verified delivery (schema_version 1): a `sync_job.*` event with
  * {@see $job}, `accounting.document.status_changed` with {@see $document},
- * `quickbooks.transaction.status_changed` with {@see $transaction}, or a
- * `connection.*` event with {@see $connection}. An
+ * `quickbooks.transaction.status_changed` with {@see $transaction}, a
+ * `connection.*` event with {@see $connection}, or `meeting.artifacts_ready`
+ * with {@see $meeting}. An
  * event type this SDK version does not know yet is still accepted (forward
  * compatible): read it from {@see $payload}. Dedupe on {@see $deliveryId};
  * route on {@see $tenantId}.
@@ -30,6 +31,9 @@ final readonly class WebhookEvent
     /** The `connection.*` event types this SDK version knows. */
     public const CONNECTION_EVENTS = [self::CONNECTION_CONNECTED, self::CONNECTION_RECONNECT_REQUIRED, self::CONNECTION_DISCONNECTED];
 
+    /** A meeting's recording and transcript links: stage `available`, then `final`. Explicit-only. */
+    public const MEETING_ARTIFACTS_READY = 'meeting.artifacts_ready';
+
     /** Sent only when an app owner asks for a test event; acknowledge it and do nothing else. */
     public const WEBHOOK_TEST = 'webhook.test';
 
@@ -40,6 +44,9 @@ final readonly class WebhookEvent
      * @param array<string, mixed> $transaction `data.transaction` of a QuickBooks transaction event; empty otherwise
      * @param array<string, mixed> $connection `data.connection` of a `connection.*` event
      *   (id, provider_key, status, previous_status, reason); empty otherwise
+     * @param array<string, mixed> $meeting `data.meeting` of `meeting.artifacts_ready` (meeting_ref,
+     *   external_ref, connection_id, provider_key, stage, status, reason, final, recordings,
+     *   transcripts, checked_at); empty otherwise
      */
     public function __construct(
         public string $deliveryId,
@@ -53,6 +60,7 @@ final readonly class WebhookEvent
         public array $document = [],
         public array $transaction = [],
         public array $connection = [],
+        public array $meeting = [],
     ) {}
 
     /** @param array<string, mixed> $body */
@@ -72,6 +80,7 @@ final readonly class WebhookEvent
             $type === self::ACCOUNTING_DOCUMENT_STATUS_CHANGED => 'document',
             $type === self::QUICKBOOKS_TRANSACTION_STATUS_CHANGED => 'transaction',
             in_array($type, self::CONNECTION_EVENTS, true) => 'connection',
+            $type === self::MEETING_ARTIFACTS_READY => 'meeting',
             str_starts_with($type, 'sync_job.') => 'sync_job',
             default => null,
         };
@@ -98,14 +107,18 @@ final readonly class WebhookEvent
             $sectionName === 'document' ? $normalized : [],
             $sectionName === 'transaction' ? $normalized : [],
             $sectionName === 'connection' ? $normalized : [],
+            $sectionName === 'meeting' ? $normalized : [],
         );
     }
 
-    /** The connection of an accounting document event or a `connection.*` event. */
+    /** The connection of an accounting document event, a `connection.*` event or a meeting event. */
     public function connectionId(): ?string
     {
         if (isset($this->connection['id']) && is_string($this->connection['id'])) {
             return $this->connection['id'];
+        }
+        if (isset($this->meeting['connection_id']) && is_string($this->meeting['connection_id'])) {
+            return $this->meeting['connection_id'];
         }
         $data = $this->payload['data'] ?? null;
 
@@ -136,6 +149,18 @@ final readonly class WebhookEvent
     public function connectionProviderKey(): ?string
     {
         return isset($this->connection['provider_key']) && is_string($this->connection['provider_key']) ? $this->connection['provider_key'] : null;
+    }
+
+    /** `data.meeting.meeting_ref` of `meeting.artifacts_ready`. */
+    public function meetingRef(): ?string
+    {
+        return isset($this->meeting['meeting_ref']) && is_string($this->meeting['meeting_ref']) ? $this->meeting['meeting_ref'] : null;
+    }
+
+    /** `data.meeting.stage` of `meeting.artifacts_ready`: available (more may follow) or final. */
+    public function meetingArtifactsStage(): ?string
+    {
+        return isset($this->meeting['stage']) && is_string($this->meeting['stage']) ? $this->meeting['stage'] : null;
     }
 
     public function jobId(): ?string

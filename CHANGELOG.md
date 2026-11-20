@@ -4,11 +4,17 @@ Releases are published to `Guruaujla/ire-php-sdk` as `v` tags.
 
 ## Unreleased
 
+- `WebhookEvent` knows `meeting.artifacts_ready` (`WebhookEvent::MEETING_ARTIFACTS_READY`):
+  `data.meeting` is on the new `$meeting` property, with `meetingRef()` and
+  `meetingArtifactsStage()` (`available` or `final`); `connectionId()` also
+  reads it. The event is opt-in: list it on the webhook. At most two per
+  meeting, with the same links `Meetings::artifacts()` returns.
 - `RuntimeProblemException::decision()` decides `fix_setup` for the new
   `accounting.reconnect_required` (409): the connection's grant lacks a scope
   the operation needs (a Xero connection consented before prepayments needs
   `accounting.banktransactions` for `Accounting::createPrepayment`).
   Reconnect, then resend the same request. `missing_scopes` names the scopes.
+
 - New `Meetings::artifacts($tenantId, $connectionId, $meetingRef)`: a
   meeting's recording and transcript links and call times after it
   (`GET /v1/meetings/connections/{id}/meetings/{meeting_ref}/artifacts`).

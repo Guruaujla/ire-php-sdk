@@ -144,6 +144,34 @@ final class WebhookVerifierTest extends TestCase
         ]);
     }
 
+    public function testParsesTheMeetingArtifactsEvent(): void
+    {
+        $meeting = [
+            'meeting_ref' => 'mtg_1', 'external_ref' => 'APPT-7', 'connection_id' => 'conn_1',
+            'provider_key' => 'google-meet', 'stage' => 'available', 'status' => 'available',
+            'reason' => null, 'final' => false, 'recordings' => [], 'transcripts' => [],
+            'checked_at' => '2026-11-21T15:45:02.000Z',
+        ];
+        $event = WebhookEvent::fromArray([
+            'schema_version' => 1, 'delivery_id' => 'd8', 'event_id' => 'mtg_1:artifacts:available',
+            'event_type' => WebhookEvent::MEETING_ARTIFACTS_READY, 'occurred_at' => '2026-11-21T15:45:02.000Z',
+            'app_id' => 'app_erp', 'tenant_id' => 't1', 'data' => ['meeting' => $meeting],
+        ]);
+        self::assertSame($meeting, $event->meeting);
+        self::assertSame('mtg_1', $event->meetingRef());
+        self::assertSame('available', $event->meetingArtifactsStage());
+        self::assertSame('conn_1', $event->connectionId());
+        self::assertFalse($event->isConnectionEvent());
+        self::assertSame([], $event->connection);
+        self::assertSame([], $event->job);
+
+        $this->expectExceptionMessage('data.meeting');
+        WebhookEvent::fromArray([
+            'delivery_id' => 'd9', 'event_id' => 'e9', 'event_type' => WebhookEvent::MEETING_ARTIFACTS_READY,
+            'occurred_at' => 'x', 'app_id' => 'a', 'tenant_id' => 't', 'data' => [],
+        ]);
+    }
+
     public function testTheTestEventIsAcceptedWithNoSection(): void
     {
         $event = WebhookEvent::fromArray([
