@@ -12,6 +12,10 @@ Releases are published to `Guruaujla/ire-php-sdk` as `v` tags.
   shows its `title`, `start`, `end`, `access` and `update_in_progress`.
   Ships disabled until the staging run.
 
+- Xero now offers `Accounting::createPrepayment`, `Accounting::applyPrepayment`
+  and `Accounting::unapplyPrepayment` (an overpayment, its allocation and the
+  allocation's delete); they ship disabled until qualified and enabled.
+
 - New `QuickBooks::applyPrepayment` and `QuickBooks::unapplyPrepayment` for
   the native `quickbooks.prepayment.apply` and `.unapply` (a full-line update
   of the prepayment's Payment). QuickBooks now offers

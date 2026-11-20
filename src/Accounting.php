@@ -284,9 +284,9 @@ final class Accounting
 
     /**
      * Records money received before its invoice (a retainer or wallet top-up)
-     * as customer credit: a QuickBooks unapplied payment, a Xero overpayment.
-     * Not offered yet: the request is refused with 422 `accounting.capability_unsupported`
-     * until the provider's prepayment writes ship and are enabled.
+     * as customer credit: a QuickBooks unapplied payment, a Xero overpayment
+     * (Xero requires the mapped deposit_account). Ships disabled: refused with
+     * 422 `accounting.operation_disabled` until qualified and enabled.
      *
      * @param array<string, mixed> $payload `prepayment` {date, amount, currency, customer {erp_id}, deposit_account?, payment_method?, reference?, private_note?}
      */
@@ -298,7 +298,9 @@ final class Accounting
     /**
      * Applies part or all of a prepayment's remaining credit to an invoice.
      * QuickBooks with "Automatically apply credits" on may already have applied
-     * it; the result reports the applications QuickBooks holds.
+     * it; the result reports the applications QuickBooks holds. Xero records
+     * an allocation dated `date`, or the later of the invoice and prepayment
+     * dates; the result's `application.date` is the date Xero stored.
      *
      * @param array<string, mixed> $payload `prepayment` {erp_id}, `invoice` {erp_id}, `application` {amount, date?}
      */
