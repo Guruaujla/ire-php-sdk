@@ -4,6 +4,14 @@ Releases are published to `Guruaujla/ire-php-sdk` as `v` tags.
 
 ## Unreleased
 
+- New `Meetings::artifacts($tenantId, $connectionId, $meetingRef)`: a
+  meeting's recording and transcript links and call times after it
+  (`GET /v1/meetings/connections/{id}/meetings/{meeting_ref}/artifacts`).
+  `status` is `available`, `pending`, `none` (with `reason`) or
+  `unsupported`; stop checking once `final` is true. Links only; who can
+  open them follows the organizer's own sharing rules. Google Meet only for
+  now (Teams answers `unsupported`). Meeting capabilities gain `artifacts`.
+
 - New `Meetings::update($tenantId, $connectionId, $idempotencyKey, $meetingRef, $changes)`
   for `meeting.update`: change an active meeting's `title`, `start` + `end`
   or `access` (Microsoft Teams: all four; Google Meet: `access` only, see

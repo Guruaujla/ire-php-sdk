@@ -27,6 +27,9 @@ use Ezee\IntegrationRuntime\Internal\ResponseReader;
  *    An update the provider did not confirm ends `meetings.update_uncertain`:
  *    send it again with a new idempotency key.
  * 4. {@see end()} ends a meeting by its `meeting_ref`.
+ * 5. {@see artifacts()} reads a meeting's recording and transcript links
+ *    after it: `status` is `available`, `pending` (check again later),
+ *    `none` (see `reason`) or `unsupported`; stop once `final` is true.
  *
  * Optional details: `title`, `start` + `end` (ISO 8601 with offset),
  * `timezone` (IANA name) and `access` (`open`, `trusted`, `restricted`).
@@ -163,6 +166,30 @@ final class Meetings
             'GET',
             ResponseReader::query(
                 '/v1/meetings/connections/' . rawurlencode($connectionId) . '/meetings/' . rawurlencode($meetingRef),
+                ['tenant_id' => $tenantId],
+            ),
+        ));
+    }
+
+    /**
+     * A meeting's recording and transcript links and call times, after the
+     * meeting. Links only: open them in a browser; the organizer's own
+     * sharing rules decide who can. `status` is `available`, `pending`,
+     * `none` (with `reason`) or `unsupported`; `final` true means it will not
+     * change, and `stale` true means the provider could not be asked just now.
+     *
+     * @return array<string, mixed>
+     */
+    public function artifacts(string $tenantId, string $connectionId, string $meetingRef): array
+    {
+        ResponseReader::requireNonEmpty('tenantId', $tenantId);
+        ResponseReader::requireNonEmpty('connectionId', $connectionId);
+        ResponseReader::requireNonEmpty('meetingRef', $meetingRef);
+
+        return ResponseReader::json($this->client->send(
+            'GET',
+            ResponseReader::query(
+                '/v1/meetings/connections/' . rawurlencode($connectionId) . '/meetings/' . rawurlencode($meetingRef) . '/artifacts',
                 ['tenant_id' => $tenantId],
             ),
         ));

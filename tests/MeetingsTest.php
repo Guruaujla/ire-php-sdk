@@ -141,6 +141,24 @@ final class MeetingsTest extends TestCase
         self::assertSame('/v1/meetings/connections/conn%2F1/meetings/mtg%201?tenant_id=t1', $transport->target(1));
     }
 
+    public function testArtifactsPath(): void
+    {
+        $transport = new ScriptedTransport([
+            Clients::json(200, ['meeting_ref' => 'mtg 1', 'status' => 'available', 'final' => true]),
+        ]);
+        $body = (new Meetings(Clients::client($transport)))->artifacts('t1', 'conn/1', 'mtg 1');
+
+        self::assertSame('GET', $transport->requests[0]->getMethod());
+        self::assertSame('/v1/meetings/connections/conn%2F1/meetings/mtg%201/artifacts?tenant_id=t1', $transport->target(0));
+        self::assertSame('available', $body['status']);
+    }
+
+    public function testArtifactsRequiresIds(): void
+    {
+        $this->expectException(\InvalidArgumentException::class);
+        (new Meetings(Clients::client(new ScriptedTransport([]))))->artifacts('t1', 'conn_1', '');
+    }
+
     public function testOperationAcceptsStillRunning(): void
     {
         $transport = new ScriptedTransport([Clients::json(202, self::operationStatus('processing'))]);
