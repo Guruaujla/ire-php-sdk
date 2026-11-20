@@ -100,6 +100,33 @@ final class MeetingsTest extends TestCase
         ], self::body($transport, 0));
     }
 
+    public function testUpdatePostsMeetingRefAndChanges(): void
+    {
+        $transport = new ScriptedTransport([Clients::json(202, self::operationStatus('queued'))]);
+        (new Meetings(Clients::client($transport)))->update(
+            't1',
+            'conn_1',
+            'appt-42:update-1',
+            'mtg_1',
+            ['title' => 'Moved', 'access' => 'restricted'],
+        );
+
+        self::assertSame([
+            'operation' => 'meeting.update',
+            'tenant_id' => 't1',
+            'connection_id' => 'conn_1',
+            'idempotency_key' => 'appt-42:update-1',
+            'meeting_ref' => 'mtg_1',
+            'changes' => ['title' => 'Moved', 'access' => 'restricted'],
+        ], self::body($transport, 0));
+    }
+
+    public function testUpdateRequiresChanges(): void
+    {
+        $this->expectException(\InvalidArgumentException::class);
+        (new Meetings(Clients::client(new ScriptedTransport([]))))->update('t1', 'conn_1', 'k', 'mtg_1', []);
+    }
+
     public function testOperationAndGetPaths(): void
     {
         $transport = new ScriptedTransport([

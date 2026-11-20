@@ -20,7 +20,13 @@ use Ezee\IntegrationRuntime\Internal\ResponseReader;
  *    otherwise poll {@see operation()} with `job_id`. Retrying with the same
  *    idempotency key and details replays; a create naming an `external_ref`
  *    that already has a meeting returns it (`existing_meeting` true).
- * 3. {@see end()} ends a meeting by its `meeting_ref`.
+ * 3. {@see update()} changes an active meeting's title, times or access by
+ *    its `meeting_ref` (only the fields in `updatable_fields`; `timezone` is
+ *    reported in `update_result.fields_ignored`). While one update is in
+ *    flight, another update or an end gets 409 `meetings.update_in_progress`.
+ *    An update the provider did not confirm ends `meetings.update_uncertain`:
+ *    send it again with a new idempotency key.
+ * 4. {@see end()} ends a meeting by its `meeting_ref`.
  *
  * Optional details: `title`, `start` + `end` (ISO 8601 with offset),
  * `timezone` (IANA name) and `access` (`open`, `trusted`, `restricted`).
@@ -72,6 +78,38 @@ final class Meetings
     }
 
     /**
+     * Update an active meeting. `$changes` holds the fields to set (absolute
+     * values): `title`, `start` + `end`, `timezone`, `access`.
+     *
+     * @param array<mixed> $changes field => value; a list is refused
+     * @return array<string, mixed> the operation status; `update_result` once it finished
+     */
+    public function update(
+        string $tenantId,
+        string $connectionId,
+        string $idempotencyKey,
+        string $meetingRef,
+        array $changes,
+    ): array {
+        ResponseReader::requireNonEmpty('tenantId', $tenantId);
+        ResponseReader::requireNonEmpty('connectionId', $connectionId);
+        ResponseReader::requireNonEmpty('idempotencyKey', $idempotencyKey);
+        ResponseReader::requireNonEmpty('meetingRef', $meetingRef);
+        if ($changes === [] || array_is_list($changes)) {
+            throw new \InvalidArgumentException('changes must name at least one field');
+        }
+
+        return $this->submit([
+            'operation' => 'meeting.update',
+            'tenant_id' => $tenantId,
+            'connection_id' => $connectionId,
+            'idempotency_key' => $idempotencyKey,
+            'meeting_ref' => $meetingRef,
+            'changes' => $changes,
+        ]);
+    }
+
+    /**
      * End a meeting by the `meeting_ref` returned when it was created.
      *
      * @return array<string, mixed> the operation status
@@ -93,7 +131,7 @@ final class Meetings
     }
 
     /**
-     * Poll an operation by the `job_id` from {@see create()} or {@see end()}:
+     * Poll an operation by the `job_id` from {@see create()}, {@see update()} or {@see end()}:
      * `200` once it finished, `202` while it is still running.
      *
      * @return array<string, mixed>
@@ -110,7 +148,8 @@ final class Meetings
     }
 
     /**
-     * Read a meeting: status, join link, meeting code and dial-in numbers.
+     * Read a meeting: status, join link, meeting code, dial-in numbers, and the
+     * title, times and access as the provider last confirmed them.
      *
      * @return array<string, mixed>
      */

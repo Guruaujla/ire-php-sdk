@@ -4,6 +4,14 @@ Releases are published to `Guruaujla/ire-php-sdk` as `v` tags.
 
 ## Unreleased
 
+- New `Meetings::update($tenantId, $connectionId, $idempotencyKey, $meetingRef, $changes)`
+  for `meeting.update`: change an active meeting's `title`, `start` + `end`
+  or `access` (Microsoft Teams: all four; Google Meet: `access` only, see
+  `updatable_fields` in `providers()`). The finished operation carries
+  `update_result` (`fields_applied`, `fields_ignored`), and a meeting now
+  shows its `title`, `start`, `end`, `access` and `update_in_progress`.
+  Ships disabled until the staging run.
+
 - New `QuickBooks::applyPrepayment` and `QuickBooks::unapplyPrepayment` for
   the native `quickbooks.prepayment.apply` and `.unapply` (a full-line update
   of the prepayment's Payment). QuickBooks now offers
