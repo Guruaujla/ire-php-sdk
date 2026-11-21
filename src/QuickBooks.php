@@ -41,6 +41,8 @@ final class QuickBooks
         'quickbooks.prepayment.create' => ['erp.quickbooks.prepayment.created', 1, 'erp.prepayment.created', 'prepayment'],
         'quickbooks.prepayment.apply' => ['erp.quickbooks.prepayment.applied', 1, 'erp.prepayment.applied', 'prepayment_application'],
         'quickbooks.prepayment.unapply' => ['erp.quickbooks.prepayment.unapplied', 1, 'erp.prepayment.unapplied', 'prepayment_unapplication'],
+        'quickbooks.prepayment.refund' => ['erp.quickbooks.prepayment.refunded', 1, 'erp.prepayment.refunded', 'prepayment_refund'],
+        'quickbooks.prepayment.void' => ['erp.quickbooks.prepayment.voided', 1, 'erp.prepayment.voided', 'prepayment_void'],
         'quickbooks.refund.create' => ['erp.quickbooks.refund.created', 3, 'erp.refund.created', 'refund_receipt'],
         'quickbooks.credit_memo.create' => ['erp.quickbooks.credit_memo.created', 1, 'erp.credit_memo.created', 'credit_memo'],
         'quickbooks.credit_memo.apply' => ['erp.quickbooks.credit_memo.applied', 1, 'erp.credit_memo.applied', 'credit_application'],
@@ -157,6 +159,18 @@ final class QuickBooks
     public function unapplyPrepayment(string $tenantId, string $connectionId, string $unapplyId, string $idempotencyKey, array $payload): OperationReceipt
     {
         return $this->execute('quickbooks.prepayment.unapply', $tenantId, $connectionId, $unapplyId, $idempotencyKey, $payload);
+    }
+
+    /** @param array<string, mixed> $payload `provider_account_id`, `prepayment_id`, `amount` (two-decimal string), `date`, `bank_account_id`, optional `reference`; `$erpRefundId` is the refund's own id */
+    public function refundPrepayment(string $tenantId, string $connectionId, string $erpRefundId, string $idempotencyKey, array $payload): OperationReceipt
+    {
+        return $this->execute('quickbooks.prepayment.refund', $tenantId, $connectionId, $erpRefundId, $idempotencyKey, $payload);
+    }
+
+    /** @param array<string, mixed> $payload `provider_account_id`, `prepayment_id`; `$voidId` is this void's own id */
+    public function voidPrepayment(string $tenantId, string $connectionId, string $voidId, string $idempotencyKey, array $payload): OperationReceipt
+    {
+        return $this->execute('quickbooks.prepayment.void', $tenantId, $connectionId, $voidId, $idempotencyKey, $payload);
     }
 
     /** @param array<string, mixed> $payload `refund`, `original_invoice`, `original_payment`, `adjustment_verification`, `allocations`, ... */

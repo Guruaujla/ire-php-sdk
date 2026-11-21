@@ -275,7 +275,7 @@ deadline it returns the last read: keep the polling URL and check again later
 
 | Method | Covers |
 | --- | --- |
-| Writes | `upsertCustomer`, `upsertItem`, `createInvoice`, `updateInvoice`, `voidInvoice`, `createPayment`, `createPrepayment`, `applyPrepayment`, `unapplyPrepayment`, `createRefund`, `createCreditMemo`, `applyCreditMemo` (`OPERATIONS` lists the keys) |
+| Writes | `upsertCustomer`, `upsertItem`, `createInvoice`, `updateInvoice`, `voidInvoice`, `createPayment`, `createPrepayment`, `applyPrepayment`, `unapplyPrepayment`, `refundPrepayment`, `voidPrepayment`, `createRefund`, `createCreditMemo`, `applyCreditMemo` (`OPERATIONS` lists the keys) |
 | Results | `status` (neutral result), `refresh` (fresh provider read of an invoice or payment) |
 | Connection | `providers`, `connectionId` (the tenant's one accounting connection) |
 | Onboarding | `listRecords`, `matchRecords`, `bindRecords` (customers, items, tax codes); `startSnapshot`, `latestSnapshot`, `startBindJob`, `bindJobResults` (large customer and item lists); `referenceOptions` (a page of choices for a mapping dropdown), `referenceData` (one record by exact id or name), `getMapping`, `setMapping`, `deleteMapping` (codes); `settings`, `updateSettings` |
@@ -401,7 +401,7 @@ recorded version on every retry.
 
 | Class | Covers |
 | --- | --- |
-| `QuickBooks` | `createInvoice`, `updateInvoice`, `voidInvoice`, `createPayment`, `createPrepayment`, `applyPrepayment`, `unapplyPrepayment`, `createRefund`, `createCreditMemo`, `applyCreditMemo`, `upsertMaster`, plus `findMaster`, `getMasterMapping`, `status`. `OPERATIONS` holds the fixed recipe identities. |
+| `QuickBooks` | `createInvoice`, `updateInvoice`, `voidInvoice`, `createPayment`, `createPrepayment`, `applyPrepayment`, `unapplyPrepayment`, `refundPrepayment`, `voidPrepayment`, `createRefund`, `createCreditMemo`, `applyCreditMemo`, `upsertMaster`, plus `findMaster`, `getMasterMapping`, `status`. `OPERATIONS` holds the fixed recipe identities. |
 | `Jobs` | `get(pollingUrl)`, `find`, `list`, and `wait`, which only ever re-reads and never resubmits. `get` and `wait` take a sync-jobs `polling_url` or, from 1.6.1, an accounting one. |
 | `Connections` | `start` (connect session; optional `$providerKey`: `'quickbooks'`, the default, or `'xero'` from 1.4.0), `reconnect` (1.5.0), `get`, `list`. |
 | `WebhookVerifier` | Verifies deliveries against the raw target and raw body. Returns a `WebhookEvent`; dedupe on `deliveryId`. From 1.5.0 a `connection.*` event has its `data.connection` on `$event->connection` (with `connectionId()`, `connectionStatus()`, `connectionProviderKey()`, `isConnectionEvent()`). |

@@ -8,8 +8,8 @@ Releases are published to `Guruaujla/ire-php-sdk` as `v` tags.
   optional `$customer`, required for prepayments), `matchRecords` and
   `bindRecords` search a customer's open credits in QuickBooks or Xero and
   bind one entered there by hand (an opening balance) to an ERP prepayment
-  id, so `applyPrepayment` and `unapplyPrepayment` work on it (refund and
-  void are not offered yet). New `BIND_JOB_ENTITIES`: `startBindJob` and
+  id, so `applyPrepayment`, `unapplyPrepayment`, the prepayment refund and
+  (QuickBooks) void work on it. New `BIND_JOB_ENTITIES`: `startBindJob` and
   `bindJobResults` now refuse `prepayment` before sending.
 - `WebhookEvent` knows `meeting.artifacts_ready` (`WebhookEvent::MEETING_ARTIFACTS_READY`):
   `data.meeting` is on the new `$meeting` property, with `meetingRef()` and
@@ -41,6 +41,12 @@ Releases are published to `Guruaujla/ire-php-sdk` as `v` tags.
 - Xero now offers `Accounting::createPrepayment`, `Accounting::applyPrepayment`
   and `Accounting::unapplyPrepayment` (an overpayment, its allocation and the
   allocation's delete); they ship disabled until qualified and enabled.
+
+- New `QuickBooks::refundPrepayment` and `QuickBooks::voidPrepayment` for the
+  native `quickbooks.prepayment.refund` (a cheque, then its link to the
+  prepayment) and `quickbooks.prepayment.void`. QuickBooks now offers
+  `Accounting::refundPrepayment` and `Accounting::voidPrepayment`; both ship
+  disabled until qualified and enabled.
 
 - New `QuickBooks::applyPrepayment` and `QuickBooks::unapplyPrepayment` for
   the native `quickbooks.prepayment.apply` and `.unapply` (a full-line update
