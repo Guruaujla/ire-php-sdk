@@ -277,7 +277,13 @@ final class Accounting
         return $this->execute('accounting.refund.create', $tenantId, $erpRefundId, $idempotencyKey, $payload, $connectionId, $erpCreatedAt);
     }
 
-    /** @param array<string, mixed> $payload `credit_memo`, `expected_totals`, `original_invoice` */
+    /**
+     * Without `original_invoice` (and with no `original_erp_line_id` on any
+     * line), a standalone credit memo: customer credit with no invoice behind
+     * it, later applied with applyCreditMemo to any invoice of the customer.
+     *
+     * @param array<string, mixed> $payload `credit_memo`, `expected_totals`, `original_invoice`?
+     */
     public function createCreditMemo(string $tenantId, string $erpCreditMemoId, string $idempotencyKey, array $payload, ?string $connectionId = null, ?\DateTimeInterface $erpCreatedAt = null): OperationReceipt
     {
         return $this->execute('accounting.credit_memo.create', $tenantId, $erpCreditMemoId, $idempotencyKey, $payload, $connectionId, $erpCreatedAt);

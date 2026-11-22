@@ -45,6 +45,7 @@ final class QuickBooks
         'quickbooks.prepayment.void' => ['erp.quickbooks.prepayment.voided', 1, 'erp.prepayment.voided', 'prepayment_void'],
         'quickbooks.refund.create' => ['erp.quickbooks.refund.created', 3, 'erp.refund.created', 'refund_receipt'],
         'quickbooks.credit_memo.create' => ['erp.quickbooks.credit_memo.created', 1, 'erp.credit_memo.created', 'credit_memo'],
+        'quickbooks.credit_memo.create_standalone' => ['erp.quickbooks.credit_memo.standalone_created', 1, 'erp.credit_memo.created', 'standalone_credit_memo'],
         'quickbooks.credit_memo.apply' => ['erp.quickbooks.credit_memo.applied', 1, 'erp.credit_memo.applied', 'credit_application'],
         'quickbooks.customer.upsert' => ['erp.quickbooks.customer.sync', 1, 'erp.customer.sync', 'master_customer_command'],
         'quickbooks.item.upsert' => ['erp.quickbooks.item.sync', 1, 'erp.item.sync', 'master_item_command'],
@@ -183,6 +184,17 @@ final class QuickBooks
     public function createCreditMemo(string $tenantId, string $connectionId, string $erpCreditId, string $idempotencyKey, array $payload): OperationReceipt
     {
         return $this->execute('quickbooks.credit_memo.create', $tenantId, $connectionId, $erpCreditId, $idempotencyKey, $payload);
+    }
+
+    /**
+     * Customer credit with no original Invoice (a goodwill or wallet credit),
+     * later applied with applyCreditMemo to any Invoice of the same customer.
+     *
+     * @param array<string, mixed> $payload `credit_memo`, `tax_declarations`, `adjustment_verification`, `source_credit_id` (= `$erpCreditId`), `provider_account_id`
+     */
+    public function createStandaloneCreditMemo(string $tenantId, string $connectionId, string $erpCreditId, string $idempotencyKey, array $payload): OperationReceipt
+    {
+        return $this->execute('quickbooks.credit_memo.create_standalone', $tenantId, $connectionId, $erpCreditId, $idempotencyKey, $payload);
     }
 
     /** @param array<string, mixed> $payload `original_invoice`, `credit_application` */

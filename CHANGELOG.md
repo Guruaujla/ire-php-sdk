@@ -4,6 +4,13 @@ Releases are published to `Guruaujla/ire-php-sdk` as `v` tags.
 
 ## Unreleased
 
+- `Accounting::createCreditMemo` accepts a standalone credit memo: leave out
+  `original_invoice`, and `original_erp_line_id` on every line, for customer
+  credit with no invoice behind it (goodwill or wallet credit). Apply it with
+  `applyCreditMemo` to any invoice of the same customer. New
+  `QuickBooks::createStandaloneCreditMemo` and the
+  `quickbooks.credit_memo.create_standalone` entry in `QuickBooks::OPERATIONS`.
+  Both ship disabled until enabled for your app.
 - `Accounting::RECORD_ENTITIES` gains `prepayment`: `listRecords` (new
   optional `$customer`, required for prepayments), `matchRecords` and
   `bindRecords` search a customer's open credits in QuickBooks or Xero and
