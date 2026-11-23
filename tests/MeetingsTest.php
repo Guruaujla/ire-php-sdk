@@ -177,4 +177,57 @@ final class MeetingsTest extends TestCase
         $this->expectException(RuntimeProblemException::class);
         (new Meetings(Clients::client($transport)))->create('t1', 'conn_1', 'k', ['external_ref' => 'a', 'access' => 'open']);
     }
+
+    public function testListSendsFiltersAndCursor(): void
+    {
+        $transport = new ScriptedTransport([
+            Clients::json(200, ['meetings' => [['meeting_ref' => 'm1']], 'next_cursor' => 'c2']),
+        ]);
+        $page = (new Meetings(Clients::client($transport)))->list('t1', 'conn/1', [
+            'external_ref' => 'appt 42',
+            'status' => 'active',
+            'limit' => 10,
+            'cursor' => 'c1',
+        ]);
+
+        self::assertSame('GET', $transport->requests[0]->getMethod());
+        self::assertSame(
+            '/v1/meetings/connections/conn%2F1/meetings?tenant_id=t1&external_ref=appt%2042&status=active&cursor=c1&limit=10',
+            $transport->target(0),
+        );
+        self::assertSame('c2', $page['next_cursor']);
+    }
+
+    public function testListRefusesAnOutOfRangeLimit(): void
+    {
+        $this->expectException(\InvalidArgumentException::class);
+        (new Meetings(Clients::client(new ScriptedTransport([]))))->list('t1', 'conn_1', ['limit' => 101]);
+    }
+
+    public function testFindByExternalRefReturnsTheMeetingOrNull(): void
+    {
+        $transport = new ScriptedTransport([
+            Clients::json(200, ['meetings' => [['meeting_ref' => 'm1', 'external_ref' => 'appt-42']], 'next_cursor' => null]),
+            Clients::json(200, ['meetings' => [], 'next_cursor' => null]),
+        ]);
+        $meetings = new Meetings(Clients::client($transport));
+
+        self::assertSame('m1', $meetings->findByExternalRef('t1', 'conn_1', 'appt-42')['meeting_ref'] ?? null);
+        self::assertNull($meetings->findByExternalRef('t1', 'conn_1', 'appt-43'));
+        self::assertSame('/v1/meetings/connections/conn_1/meetings?tenant_id=t1&external_ref=appt-42&limit=1', $transport->target(0));
+    }
+
+    public function testDecisionKnowsMeetingsCodes(): void
+    {
+        $d = static fn(int $s, string $c): string => (new RuntimeProblemException($s, $c))->decision();
+        self::assertSame(RuntimeProblemException::RETRY_SAME_REQUEST, $d(409, 'meetings.update_in_progress'));
+        self::assertSame(RuntimeProblemException::RETRY_SAME_REQUEST, $d(409, 'meetings.create_in_progress'));
+        self::assertSame(RuntimeProblemException::RETRY_SAME_REQUEST, $d(503, 'meetings.state_unavailable'));
+        self::assertSame(RuntimeProblemException::FIX_SETUP, $d(409, 'meetings.connection_not_active'));
+        self::assertSame(RuntimeProblemException::FIX_SETUP, $d(409, 'meetings.account_changed'));
+        self::assertSame(RuntimeProblemException::FIX_REQUEST, $d(409, 'meetings.meeting_ended'));
+        self::assertSame(RuntimeProblemException::REVIEW_AND_RESUBMIT, $d(409, 'meetings.update_superseded'));
+        // An unknown meetings code follows the generic status rules.
+        self::assertSame(RuntimeProblemException::STOP_AND_RECONCILE, $d(409, 'meetings.some_future_code'));
+    }
 }

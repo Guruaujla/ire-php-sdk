@@ -4,6 +4,28 @@ Releases are published to `Guruaujla/ire-php-sdk` as `v` tags.
 
 ## Unreleased
 
+- New `Meetings::list($tenantId, $connectionId, $filters)`: a connection's
+  meetings, newest first (`GET /v1/meetings/connections/{id}/meetings`),
+  filtered by `external_ref` or `status`, paged with `limit` and `cursor`
+  (`next_cursor`). New `Meetings::findByExternalRef()` returns the meeting for
+  one of your records, or null.
+- `RuntimeProblemException::decision()` knows the `meetings.*` codes: an
+  update or create in progress, `rate_limited` and `state_unavailable` decide
+  `retry_same_request`; `connection_not_active` and `account_changed`
+  `fix_setup`; `operation_disabled` and `provider_unavailable`
+  `ask_operator`; the superseded codes `review_and_resubmit`. They used to
+  fall through to `stop_and_reconcile`. The same table ships in
+  `sdks/problem-decisions.json` (`meetingsDecisions`).
+- Meetings responses carry new fields: a meeting's `scheduled_start` and
+  `scheduled_end` (the times you sent on create, kept when the provider
+  stores none); an operation's `end_result.link_restricted` and `warnings`
+  (`access_not_applied`, `link_still_open`); a provider's
+  `operations_enabled` in `Meetings::providers()`, and `enabled` is false
+  until `meeting.create` is switched on. `Connections::get()` returns a
+  meeting connection's `provider_account_id`.
+- The `Meetings` docblock says what create does with details the provider
+  does not store: they come back in `fields_ignored`, not a 422.
+
 - `Accounting::createCreditMemo` accepts a standalone credit memo: leave out
   `original_invoice`, and `original_erp_line_id` on every line, for customer
   credit with no invoice behind it (goodwill or wallet credit). Apply it with
@@ -11,6 +33,7 @@ Releases are published to `Guruaujla/ire-php-sdk` as `v` tags.
   `QuickBooks::createStandaloneCreditMemo` and the
   `quickbooks.credit_memo.create_standalone` entry in `QuickBooks::OPERATIONS`.
   Both ship disabled until enabled for your app.
+
 - `Accounting::RECORD_ENTITIES` gains `prepayment`: `listRecords` (new
   optional `$customer`, required for prepayments), `matchRecords` and
   `bindRecords` search a customer's open credits in QuickBooks or Xero and
@@ -18,11 +41,21 @@ Releases are published to `Guruaujla/ire-php-sdk` as `v` tags.
   id, so `applyPrepayment`, `unapplyPrepayment`, the prepayment refund and
   (QuickBooks) void work on it. New `BIND_JOB_ENTITIES`: `startBindJob` and
   `bindJobResults` now refuse `prepayment` before sending.
+
+- New `QuickBooks::refundPrepayment` and `QuickBooks::voidPrepayment` for the
+  native `quickbooks.prepayment.refund` (a cheque, then its link to the
+  prepayment) and `quickbooks.prepayment.void`. QuickBooks now offers
+  `Accounting::refundPrepayment` and `Accounting::voidPrepayment`; both ship
+  disabled until qualified and enabled.
+
+## 1.13.0 (2026-11-20)
+
 - `WebhookEvent` knows `meeting.artifacts_ready` (`WebhookEvent::MEETING_ARTIFACTS_READY`):
   `data.meeting` is on the new `$meeting` property, with `meetingRef()` and
   `meetingArtifactsStage()` (`available` or `final`); `connectionId()` also
   reads it. The event is opt-in: list it on the webhook. At most two per
   meeting, with the same links `Meetings::artifacts()` returns.
+
 - `RuntimeProblemException::decision()` decides `fix_setup` for the new
   `accounting.reconnect_required` (409): the connection's grant lacks a scope
   the operation needs (a Xero connection consented before prepayments needs
@@ -37,6 +70,12 @@ Releases are published to `Guruaujla/ire-php-sdk` as `v` tags.
   open them follows the organizer's own sharing rules. Google Meet only for
   now (Teams answers `unsupported`). Meeting capabilities gain `artifacts`.
 
+- Xero now offers `Accounting::createPrepayment`, `Accounting::applyPrepayment`
+  and `Accounting::unapplyPrepayment` (an overpayment, its allocation and the
+  allocation's delete); they ship disabled until qualified and enabled.
+
+## 1.12.0 (2026-11-20)
+
 - New `Meetings::update($tenantId, $connectionId, $idempotencyKey, $meetingRef, $changes)`
   for `meeting.update`: change an active meeting's `title`, `start` + `end`
   or `access` (Microsoft Teams: all four; Google Meet: `access` only, see
@@ -44,16 +83,6 @@ Releases are published to `Guruaujla/ire-php-sdk` as `v` tags.
   `update_result` (`fields_applied`, `fields_ignored`), and a meeting now
   shows its `title`, `start`, `end`, `access` and `update_in_progress`.
   Ships disabled until the staging run.
-
-- Xero now offers `Accounting::createPrepayment`, `Accounting::applyPrepayment`
-  and `Accounting::unapplyPrepayment` (an overpayment, its allocation and the
-  allocation's delete); they ship disabled until qualified and enabled.
-
-- New `QuickBooks::refundPrepayment` and `QuickBooks::voidPrepayment` for the
-  native `quickbooks.prepayment.refund` (a cheque, then its link to the
-  prepayment) and `quickbooks.prepayment.void`. QuickBooks now offers
-  `Accounting::refundPrepayment` and `Accounting::voidPrepayment`; both ship
-  disabled until qualified and enabled.
 
 - New `QuickBooks::applyPrepayment` and `QuickBooks::unapplyPrepayment` for
   the native `quickbooks.prepayment.apply` and `.unapply` (a full-line update
@@ -71,6 +100,7 @@ Releases are published to `Guruaujla/ire-php-sdk` as `v` tags.
   `refundPrepayment`, `voidPrepayment` (`createPrepayment` and
   `refundPrepayment` take the optional `$erpCreatedAt`). No provider offers them yet: the
   runtime answers `422 accounting.capability_unsupported`.
+
 - `Connections` accepts `google-meet` and `microsoft-teams` for connect,
   reconnect and disconnect (Meetings API). For a meeting connection, pass `provider_account_id` to
   disconnect (from `GET /v1/meetings/providers`); the accounting lookup does
@@ -85,6 +115,8 @@ Releases are published to `Guruaujla/ire-php-sdk` as `v` tags.
   operation status (`200` finished or `202` running). Google Meet and
   Microsoft Teams are the providers (no SDK change; capabilities come from
   `providers()`).
+
+## 1.11.0 (2026-11-19)
 
 - `Accounting::buildRequest()`, `execute()`, `createInvoice()`,
   `createPayment()`, `createRefund()`, `createCreditMemo()` and
@@ -103,6 +135,8 @@ Releases are published to `Guruaujla/ire-php-sdk` as `v` tags.
   provider your app can connect (`provider_key`, `display_name`, `category`,
   `enabled`); `inCategory($tenantId, $category)` filters by unified API
   (`accounting`, later `meetings`). New providers appear without an SDK change.
+
+## 1.10.0 (2026-11-18)
 
 - New `Activity` (`GET /v1/activity`): `list($tenantId, $filters)` returns
   one page of the tenant's integration activity, newest first (operations

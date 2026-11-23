@@ -26,16 +26,26 @@ use Ezee\IntegrationRuntime\Internal\ResponseReader;
  *    flight, another update or an end gets 409 `meetings.update_in_progress`.
  *    An update the provider did not confirm ends `meetings.update_uncertain`:
  *    send it again with a new idempotency key.
- * 4. {@see end()} ends a meeting by its `meeting_ref`.
- * 5. {@see artifacts()} reads a meeting's recording and transcript links
+ * 4. {@see end()} ends a meeting by its `meeting_ref`. The completed
+ *    operation's `end_result.link_restricted` says whether the provider
+ *    locked the link; `warnings` lists `link_still_open` when it did not, and
+ *    `access_not_applied` when a requested access level was not applied.
+ *    An end takes priority over an update that has not been sent yet.
+ * 5. {@see list()} pages a connection's meetings, newest first; filter by
+ *    `external_ref` to find the meeting for one of your records.
+ * 6. {@see artifacts()} reads a meeting's recording and transcript links
  *    after it: `status` is `available`, `pending` (check again later),
  *    `none` (see `reason`) or `unsupported`; stop once `final` is true.
  *
  * Optional details: `title`, `start` + `end` (ISO 8601 with offset),
  * `timezone` (IANA name) and `access` (`open`, `trusted`, `restricted`).
- * A detail the provider cannot apply is refused with 422
- * `meetings.capability_unsupported`; check `fields_honored` and
- * `access_levels` from {@see providers()} first.
+ * On create, a detail the provider does not store comes back in
+ * `fields_ignored` (Google Meet stores no title or time; send `start` and
+ * `end` anyway: they schedule the after-meeting check). Only an `access`
+ * level outside `access_levels` is refused, with 422
+ * `meetings.capability_unsupported`. On update, a field outside
+ * `updatable_fields` is refused the same way. `operations_enabled` from
+ * {@see providers()} lists the operations switched on.
  */
 final class Meetings
 {
@@ -169,6 +179,60 @@ final class Meetings
                 ['tenant_id' => $tenantId],
             ),
         ));
+    }
+
+    /**
+     * A connection's meetings, newest first, as stored (no provider call).
+     * `$filters` may hold `external_ref`, `status` (`creating`, `active`,
+     * `ending`, `ended`, `failed`), `limit` (1-100, default 50) and `cursor`
+     * (the previous page's `next_cursor`).
+     *
+     * @param array{external_ref?: string, status?: string, limit?: int, cursor?: string} $filters
+     * @return array<string, mixed> `meetings` and `next_cursor` (null on the last page)
+     */
+    public function list(string $tenantId, string $connectionId, array $filters = []): array
+    {
+        ResponseReader::requireNonEmpty('tenantId', $tenantId);
+        ResponseReader::requireNonEmpty('connectionId', $connectionId);
+        $query = ['tenant_id' => $tenantId];
+        foreach (['external_ref', 'status', 'cursor'] as $key) {
+            if (isset($filters[$key])) {
+                ResponseReader::requireNonEmpty($key, (string) $filters[$key]);
+                $query[$key] = (string) $filters[$key];
+            }
+        }
+        if (isset($filters['limit'])) {
+            $limit = (int) $filters['limit'];
+            if ($limit < 1 || $limit > 100) {
+                throw new \InvalidArgumentException('limit must be 1 to 100');
+            }
+            $query['limit'] = (string) $limit;
+        }
+
+        return ResponseReader::json($this->client->send(
+            'GET',
+            ResponseReader::query('/v1/meetings/connections/' . rawurlencode($connectionId) . '/meetings', $query),
+        ));
+    }
+
+    /**
+     * The meeting for one of your own records, or null when there is none.
+     *
+     * @return array<string, mixed>|null
+     */
+    public function findByExternalRef(string $tenantId, string $connectionId, string $externalRef): ?array
+    {
+        ResponseReader::requireNonEmpty('externalRef', $externalRef);
+        $page = $this->list($tenantId, $connectionId, ['external_ref' => $externalRef, 'limit' => 1]);
+        $meetings = $page['meetings'] ?? [];
+
+        if (! is_array($meetings) || ! isset($meetings[0]) || ! is_array($meetings[0])) {
+            return null;
+        }
+        /** @var array<string, mixed> $meeting */
+        $meeting = $meetings[0];
+
+        return $meeting;
     }
 
     /**

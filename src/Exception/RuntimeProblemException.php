@@ -109,6 +109,34 @@ final class RuntimeProblemException extends \RuntimeException
     ];
 
     /**
+     * Meetings API problem codes (docs-site/content/meetings.md "Errors";
+     * Meetings QA D-F3). Unknown `meetings.*` codes fall through to the
+     * generic status rules below.
+     */
+    private const MEETINGS_DECISIONS = [
+        'meetings.connection_not_found' => self::FIX_REQUEST,
+        'meetings.meeting_not_found' => self::FIX_REQUEST,
+        'meetings.operation_not_found' => self::FIX_REQUEST,
+        'meetings.capability_unsupported' => self::FIX_REQUEST,
+        'meetings.external_ref_conflict' => self::FIX_REQUEST,
+        'meetings.meeting_ended' => self::FIX_REQUEST,
+        'meetings.idempotency_conflict' => self::FIX_REQUEST,
+        'meetings.update_superseded' => self::REVIEW_AND_RESUBMIT,
+        'meetings.request_superseded' => self::REVIEW_AND_RESUBMIT,
+        'meetings.provider_error' => self::REVIEW_AND_RESUBMIT,
+        'meetings.meeting_not_active' => self::DO_NOT_SYNC,
+        'meetings.meeting_not_started' => self::RETRY_SAME_REQUEST,
+        'meetings.create_in_progress' => self::RETRY_SAME_REQUEST,
+        'meetings.update_in_progress' => self::RETRY_SAME_REQUEST,
+        'meetings.rate_limited' => self::RETRY_SAME_REQUEST,
+        'meetings.state_unavailable' => self::RETRY_SAME_REQUEST,
+        'meetings.connection_not_active' => self::FIX_SETUP,
+        'meetings.account_changed' => self::FIX_SETUP,
+        'meetings.operation_disabled' => self::ASK_OPERATOR,
+        'meetings.provider_unavailable' => self::ASK_OPERATOR,
+    ];
+
+    /**
      * @param array<string, mixed>|null $problem the decoded problem+json body, when there was one
      */
     public function __construct(
@@ -124,7 +152,8 @@ final class RuntimeProblemException extends \RuntimeException
     /**
      * The documented ERP action for this response
      * (docs-site/content/index.md "HTTP decision table"; neutral
-     * `accounting.*` codes per accounting-operations.md "Errors").
+     * `accounting.*` codes per accounting-operations.md "Errors", and
+     * `meetings.*` codes per meetings.md "Errors").
      * New values may be added; treat an unknown one as stop_and_reconcile.
      *
      * `oauth.disconnect_retryable` (503) and `oauth.lifecycle_busy` (409)
@@ -137,6 +166,9 @@ final class RuntimeProblemException extends \RuntimeException
         $code = $this->problemCode;
         if (isset(self::ACCOUNTING_DECISIONS[$code])) {
             return self::ACCOUNTING_DECISIONS[$code];
+        }
+        if (isset(self::MEETINGS_DECISIONS[$code])) {
+            return self::MEETINGS_DECISIONS[$code];
         }
         if (str_starts_with($code, 'accounting.') && $code !== 'accounting.provider_refused') {
             // A financial-write refusal this SDK does not know: never mutate and resend.

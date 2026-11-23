@@ -35,6 +35,13 @@ if ($accountingConstant === false) {
 }
 /** @var array<string, string> $table */
 $table = $accountingConstant->getValue();
+$meetingsConstant = $reflection->getReflectionConstant('MEETINGS_DECISIONS');
+if ($meetingsConstant === false) {
+    fwrite(STDERR, "RuntimeProblemException::MEETINGS_DECISIONS is missing\n");
+    exit(1);
+}
+/** @var array<string, string> $meetingsTable */
+$meetingsTable = $meetingsConstant->getValue();
 $decisions = [];
 foreach ($reflection->getReflectionConstants() as $constant) {
     if ($constant->isPublic() && is_string($constant->getValue())) {
@@ -76,7 +83,12 @@ $inputs = [
     [422, 'something.else'],
     [200, 'http.200'],
 ];
+$inputs[] = [409, 'meetings.some_future_code'];
+$inputs[] = [503, 'meetings.some_future_code'];
 foreach (array_keys($table) as $code) {
+    $inputs[] = [409, $code];
+}
+foreach (array_keys($meetingsTable) as $code) {
     $inputs[] = [409, $code];
 }
 $cases = [];
@@ -88,6 +100,7 @@ $json = json_encode([
     '$comment' => 'RuntimeProblem decision() table shared by the PHP, TypeScript and Python SDKs. Generated from the PHP SDK by sdks/php/tools/generate-problem-decisions.php; do not hand-edit. Each SDK test asserts its own table equals this file.',
     'decisions' => $decisions,
     'accountingDecisions' => $table,
+    'meetingsDecisions' => $meetingsTable,
     'cases' => $cases,
 ], JSON_PRETTY_PRINT | JSON_UNESCAPED_SLASHES | JSON_THROW_ON_ERROR);
 

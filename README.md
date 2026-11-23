@@ -300,7 +300,7 @@ New values may be added; treat an unknown one as `stop_and_reconcile`.
 ### Available providers
 
 `Providers` lists every provider your app can connect, with its `category`
-(the unified API that serves it: `accounting` today, `meetings` next) and
+(the unified API that serves it: `accounting` or `meetings`) and
 whether your app can connect it now (`enabled`). Render this list on your
 integrations screen: a provider the runtime adds later appears without a code
 change.
