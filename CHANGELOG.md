@@ -2,7 +2,7 @@
 
 Releases are published to `Guruaujla/ire-php-sdk` as `v` tags.
 
-## Unreleased
+## 1.14.0 (2026-11-23)
 
 - New `Meetings::list($tenantId, $connectionId, $filters)`: a connection's
   meetings, newest first (`GET /v1/meetings/connections/{id}/meetings`),
