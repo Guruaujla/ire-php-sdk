@@ -136,6 +136,23 @@ final class RuntimeProblemException extends \RuntimeException
         'meetings.provider_unavailable' => self::ASK_OPERATOR,
     ];
 
+    /** Calendar API refusals (`/v1/calendar/*`); reads only, so nothing to reconcile. */
+    private const CALENDAR_DECISIONS = [
+        'calendar.invalid_query' => self::FIX_REQUEST,
+        'calendar.invalid_cursor' => self::FIX_REQUEST,
+        'calendar.request_rejected' => self::FIX_REQUEST,
+        'calendar.connection_not_found' => self::FIX_REQUEST,
+        'calendar.calendar_not_found' => self::FIX_REQUEST,
+        'connect.principal_ref_invalid' => self::FIX_REQUEST,
+        'calendar.insufficient_scopes' => self::FIX_SETUP,
+        'calendar.connection_not_active' => self::FIX_SETUP,
+        'calendar.rate_limited' => self::RETRY_SAME_REQUEST,
+        'calendar.provider_unavailable' => self::RETRY_SAME_REQUEST,
+        'calendar.state_unavailable' => self::RETRY_SAME_REQUEST,
+        'calendar.operation_disabled' => self::ASK_OPERATOR,
+        'calendar.provider_not_configured' => self::ASK_OPERATOR,
+    ];
+
     /**
      * @param array<string, mixed>|null $problem the decoded problem+json body, when there was one
      */
@@ -169,6 +186,9 @@ final class RuntimeProblemException extends \RuntimeException
         }
         if (isset(self::MEETINGS_DECISIONS[$code])) {
             return self::MEETINGS_DECISIONS[$code];
+        }
+        if (isset(self::CALENDAR_DECISIONS[$code])) {
+            return self::CALENDAR_DECISIONS[$code];
         }
         if (str_starts_with($code, 'accounting.') && $code !== 'accounting.provider_refused') {
             // A financial-write refusal this SDK does not know: never mutate and resend.

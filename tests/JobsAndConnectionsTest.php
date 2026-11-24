@@ -290,7 +290,7 @@ final class JobsAndConnectionsTest extends TestCase
     public function testReconnectRefusesAProviderItCannotConnect(): void
     {
         $transport = new ScriptedTransport([
-            Clients::json(200, ['id' => 'g1', 'provider_key' => 'google-calendar', 'status' => 'reconnect_required']),
+            Clients::json(200, ['id' => 'g1', 'provider_key' => 'sage', 'status' => 'reconnect_required']),
         ]);
         try {
             (new Connections(Clients::client($transport)))->reconnect('t1', 'g1', 'https://erp.example.com/r', 's');
@@ -433,7 +433,7 @@ final class JobsAndConnectionsTest extends TestCase
 
     public function testDisconnectRefusesAProviderItCannotDisconnect(): void
     {
-        $transport = new ScriptedTransport([Clients::json(200, self::connection('g1', 'google-calendar'))]);
+        $transport = new ScriptedTransport([Clients::json(200, self::connection('g1', 'sage'))]);
         try {
             (new Connections(Clients::client($transport)))->disconnect('t1', 'g1', 'disconnect:k5', 'acct');
             self::fail('expected UnexpectedValueException');

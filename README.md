@@ -335,6 +335,33 @@ $op = $meetings->create($tenantId, $connectionId, "appointment:{$id}:create", [
 
 Steps, capabilities, retries and errors: `meetings.md` in the runtime docs.
 
+### Calendar
+
+`Calendar` connects one person's calendar and reads their calendars and
+events (Google Calendar first, then Outlook) with the same code for every
+provider. Each person connects once; `principalRef` is your id for them.
+
+```php
+use Ezee\IntegrationRuntime\Calendar;
+
+$calendar = new Calendar($client);
+$session = $calendar->connect($tenantId, (string) $user->id, $returnUrl, $state);
+// Redirect to $session['authorize_url']; store $session['connection_id'] on the user.
+
+$calendars = $calendar->calendars($tenantId, $connectionId)['calendars'];
+foreach ($calendar->eachEvent($tenantId, $connectionId, [
+    'calendar_id' => 'primary',
+    'from' => '2026-12-01T00:00:00-05:00',
+    'to' => '2026-12-08T00:00:00-05:00',
+]) as $event) {
+    // $event['status'] === 'cancelled': remove it from your copy.
+}
+```
+
+Connecting the same `principalRef` again reconnects the same connection.
+`$calendar->disconnect($tenantId, $connectionId, $idempotencyKey)` deletes the
+runtime's tokens. Steps, fields and errors: `calendar.md` in the runtime docs.
+
 ### Activity log
 
 `Activity` reads the tenant's integration activity, newest first, to show your
@@ -430,12 +457,9 @@ For the **offline-only Google Calendar contract fixture**, see
 [`examples/google-calendar`](examples/google-calendar/). It begins with an
 already-authorized synthetic grant and exercises authoritative grant reads,
 paginated discovery, explicit resource selection, and bounded event-page reads
-without a network or provider request. The public connect-session route accepts
-only QuickBooks, so this fixture does not claim to provision Calendar consent.
-A local synthetic Worker test accepts the Calendar read shapes and the public
-OpenAPI describes them, but neither fact is deployed or live acceptance. Do
-not target the fixture at a runtime: Calendar remains inactive until release
-and an authorized consent flow has completed and been reconciled.
+without a network or provider request. It models the older asynchronous read
+path, which stays switched off; for live Calendar reads use `Calendar` (see
+[Calendar](#calendar)).
 
 For Invoice creates, derive `idempotency_key` from the stable business event and
 operation—not `recipe_version`. Once a key has been issued, preserve it exactly,

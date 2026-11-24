@@ -2,6 +2,22 @@
 
 Releases are published to `Guruaujla/ire-php-sdk` as `v` tags.
 
+## Unreleased
+
+- New `Calendar` (`/v1/calendar/*`): `connect($tenantId, $principalRef, ...)`
+  starts connecting one person's Google Calendar, `providers()`,
+  `calendars()`, `events()` and `eachEvent()` read calendars and events, and
+  `disconnect()` removes a person's connection (pass the stored
+  `provider_account_id`, or the SDK reads it from `providers()`, which lists
+  calendar connections in every state).
+- `Connections::start()` takes an optional `$principalRef` (required for
+  `google-calendar`, refused for other providers); `PROVIDER_KEYS` adds
+  `google-calendar`. `reconnect()` refuses a per-person connection: use
+  `Calendar::connect()` with the same `principalRef`.
+- `RuntimeProblemException::decision()` knows the `calendar.*` codes and
+  `connect.principal_ref_invalid`; the table ships in
+  `sdks/problem-decisions.json` (`calendarDecisions`).
+
 ## 1.14.0 (2026-11-23)
 
 - New `Meetings::list($tenantId, $connectionId, $filters)`: a connection's

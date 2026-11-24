@@ -18,17 +18,23 @@ use Ezee\IntegrationRuntime\Internal\ResponseReader;
 final class Connections
 {
     /** The providers the public connect-session endpoint accepts. */
-    public const PROVIDER_KEYS = ['quickbooks', 'xero', 'google-meet', 'microsoft-teams'];
+    public const PROVIDER_KEYS = ['quickbooks', 'xero', 'google-meet', 'microsoft-teams', 'google-calendar'];
+
+    /** Providers whose connections belong to one person: connect-session needs `principal_ref`. */
+    public const PER_USER_PROVIDER_KEYS = ['google-calendar'];
 
     public function __construct(private readonly Client $client) {}
 
     /**
      * @param string $state one-time, unpredictable value you stored server-side for this attempt
-     * @param string $providerKey 'quickbooks' (the default) or 'xero'; Xero needs the
-     *   operator to add the app's Xero provider configuration first
+     * @param string $providerKey 'quickbooks' (the default), 'xero', 'google-meet',
+     *   'microsoft-teams' or 'google-calendar'; a provider needs the app's provider
+     *   configuration first
+     * @param string|null $principalRef your id for the person (1-255 characters);
+     *   required for 'google-calendar' (see {@see Calendar::connect()}), refused otherwise
      * @return array{session_id: string, authorize_url: string, expires_at: int, connection_id: string|null}
      */
-    public function start(string $tenantId, string $returnUrl, string $state, string $providerKey = 'quickbooks'): array
+    public function start(string $tenantId, string $returnUrl, string $state, string $providerKey = 'quickbooks', ?string $principalRef = null): array
     {
         ResponseReader::requireNonEmpty('tenantId', $tenantId);
         ResponseReader::requireNonEmpty('returnUrl', $returnUrl);
@@ -36,12 +42,23 @@ final class Connections
         if (! in_array($providerKey, self::PROVIDER_KEYS, true)) {
             throw new \InvalidArgumentException('providerKey must be one of ' . implode(', ', self::PROVIDER_KEYS));
         }
-        $body = ResponseReader::json($this->client->send('POST', '/v1/connections/connect-session', [
+        $perUser = in_array($providerKey, self::PER_USER_PROVIDER_KEYS, true);
+        if ($perUser && ($principalRef === null || trim($principalRef) === '' || strlen($principalRef) > 255)) {
+            throw new \InvalidArgumentException('principalRef (1-255 characters) is required for ' . $providerKey);
+        }
+        if (! $perUser && $principalRef !== null) {
+            throw new \InvalidArgumentException('principalRef is only accepted for ' . implode(', ', self::PER_USER_PROVIDER_KEYS));
+        }
+        $request = [
             'tenant_id' => $tenantId,
             'provider_key' => $providerKey,
             'return_url' => $returnUrl,
             'state' => $state,
-        ]), [200, 201]);
+        ];
+        if ($principalRef !== null) {
+            $request['principal_ref'] = $principalRef;
+        }
+        $body = ResponseReader::json($this->client->send('POST', '/v1/connections/connect-session', $request), [200, 201]);
         $sessionId = $body['session_id'] ?? null;
         $authorizeUrl = $body['authorize_url'] ?? null;
         $expiresAt = $body['expires_at'] ?? null;
@@ -77,6 +94,11 @@ final class Connections
         $providerKey = $connection['provider_key'] ?? null;
         if (! is_string($providerKey) || ! in_array($providerKey, self::PROVIDER_KEYS, true)) {
             throw new \UnexpectedValueException('Connection ' . $connectionId . ' has no provider_key this SDK can reconnect.');
+        }
+        if (in_array($providerKey, self::PER_USER_PROVIDER_KEYS, true)) {
+            throw new \InvalidArgumentException(
+                'Connection ' . $connectionId . ' belongs to one person: reconnect it with Calendar::connect() and the same principalRef.',
+            );
         }
 
         return $this->start($tenantId, $returnUrl, $state, $providerKey);
@@ -130,7 +152,9 @@ final class Connections
         if (! is_string($providerKey) || ! in_array($providerKey, self::PROVIDER_KEYS, true)) {
             throw new \UnexpectedValueException('Connection ' . $connectionId . ' has no provider_key this SDK can disconnect.');
         }
-        $providerAccountId ??= $this->connectedProviderAccountId($tenantId, $connectionId);
+        $providerAccountId ??= in_array($providerKey, self::PER_USER_PROVIDER_KEYS, true)
+            ? (new Calendar($this->client))->providerAccountId($tenantId, $connectionId)
+            : $this->connectedProviderAccountId($tenantId, $connectionId);
         $response = $this->client->send('POST', '/v1/connections/' . rawurlencode($connectionId) . '/disconnect', [
             'tenant_id' => $tenantId,
             'provider_key' => $providerKey,
