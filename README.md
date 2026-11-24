@@ -337,8 +337,8 @@ Steps, capabilities, retries and errors: `meetings.md` in the runtime docs.
 
 ### Calendar
 
-`Calendar` connects one person's calendar and reads their calendars and
-events (Google Calendar first, then Outlook) with the same code for every
+`Calendar` connects one person's calendar, reads their calendars and events,
+writes events and reads free/busy (Google Calendar first, then Outlook) with the same code for every
 provider. Each person connects once; `principalRef` is your id for them.
 
 ```php
@@ -358,6 +358,34 @@ foreach ($calendar->eachEvent($tenantId, $connectionId, [
 }
 ```
 
+Write an event named by your own id, with a Google Meet link, and read when
+people are busy:
+
+```php
+$op = $calendar->createEvent($tenantId, $connectionId, 'booking-42-create', [
+    'external_ref' => 'booking-42',
+    'title' => 'Consultation',
+    'start' => ['date_time' => '2026-12-01T10:00:00-05:00'],
+    'end' => ['date_time' => '2026-12-01T10:30:00-05:00'],
+    'attendees' => [['email' => 'client@example.com']],
+    'conference' => ['create' => true],
+], 'all');
+// 200: finished (check $op['error']); 202: poll $calendar->operation($tenantId, $op['job_id']).
+$link = $op['written_event']['event']['conference_url'] ?? null;
+
+$calendar->updateEvent($tenantId, $connectionId, 'booking-42-move', 'booking-42', [
+    'start' => ['date_time' => '2026-12-01T11:00:00-05:00'],
+    'end' => ['date_time' => '2026-12-01T11:30:00-05:00'],
+]);
+$calendar->deleteEvent($tenantId, $connectionId, 'booking-42-cancel', 'booking-42');
+
+$busy = $calendar->freeBusy($tenantId, '2026-12-01T00:00:00-05:00', '2026-12-02T00:00:00-05:00', [
+    ['connection_id' => $connectionId],
+]);
+```
+
+Retry a lost answer with the same idempotency key and details: it replays.
+An `error` on a free/busy connection or calendar means unknown, never free.
 Connecting the same `principalRef` again reconnects the same connection.
 `$calendar->disconnect($tenantId, $connectionId, $idempotencyKey)` deletes the
 runtime's tokens. Steps, fields and errors: `calendar.md` in the runtime docs.

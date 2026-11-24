@@ -26,6 +26,18 @@ use Ezee\IntegrationRuntime\Internal\ResponseReader;
  *    expands repeating events; `series` returns each series once. Cancelled
  *    items are included so a sync can remove them.
  *
+ * 5. {@see createEvent()}, {@see updateEvent()} and {@see deleteEvent()}
+ *    write an event named by your own `external_ref` (unique per calendar
+ *    connection). Each answers the operation status: `status` `completed`
+ *    (check `error`) when the provider answered within about 10 seconds,
+ *    otherwise poll {@see operation()} with `job_id`. Retry a lost answer
+ *    with the same idempotency key and the same details: it replays.
+ *    `conference` `['create' => true]` adds the provider's own video link
+ *    (Google Meet). `$sendUpdates` `all` lets the provider email guests.
+ * 6. {@see writtenEvent()} reads an event as stored after its last write here.
+ * 7. {@see freeBusy()} reads when up to 20 people are busy over one window.
+ *    An `error` on a connection or calendar means unknown time, never free.
+ *
  * Pages: pass the previous page's `next_cursor` as `cursor` with the same
  * query. Reads are live and never stored by the runtime.
  */
@@ -180,6 +192,169 @@ final class Calendar
             $next = $page['next_cursor'] ?? null;
             $query['cursor'] = is_string($next) && $next !== '' ? $next : null;
         } while ($query['cursor'] !== null);
+    }
+
+    /**
+     * Create an event. `$event` holds `external_ref`, `title`, `start`, `end`
+     * (each `['date_time' => RFC 3339 with offset]` or `['date' => 'YYYY-MM-DD']`
+     * for all-day, both the same kind) and optionally `calendar_id` (default
+     * `primary`), `timezone` (IANA), `description`, `location`, `attendees`
+     * (`email`, `name`, `optional`), `visibility` (`default`, `public`,
+     * `private`), `show_as` (`busy`, `free`) and `conference` (`['create' => true]`).
+     *
+     * @param array<string, mixed> $event
+     * @param string $sendUpdates `none` (default) or `all`
+     * @return array<string, mixed> the operation status, with `written_event`
+     */
+    public function createEvent(string $tenantId, string $connectionId, string $idempotencyKey, array $event, string $sendUpdates = 'none'): array
+    {
+        self::requireWrite($tenantId, $connectionId, $idempotencyKey, $sendUpdates);
+        if (! is_string($event['external_ref'] ?? null) || $event['external_ref'] === '') {
+            throw new \InvalidArgumentException('event.external_ref must be a non-empty string');
+        }
+
+        return $this->submit([
+            'operation' => 'event.create',
+            'tenant_id' => $tenantId,
+            'connection_id' => $connectionId,
+            'idempotency_key' => $idempotencyKey,
+            'send_updates' => $sendUpdates,
+            'event' => $event,
+        ]);
+    }
+
+    /**
+     * Change an event written through {@see createEvent()}. `$changes` holds the
+     * fields to set (absolute values), the same fields as a create except
+     * `external_ref` and `calendar_id`.
+     *
+     * @param array<mixed> $changes field => value; a list is refused
+     * @return array<string, mixed> the operation status
+     */
+    public function updateEvent(
+        string $tenantId,
+        string $connectionId,
+        string $idempotencyKey,
+        string $externalRef,
+        array $changes,
+        string $sendUpdates = 'none',
+    ): array {
+        self::requireWrite($tenantId, $connectionId, $idempotencyKey, $sendUpdates);
+        ResponseReader::requireNonEmpty('externalRef', $externalRef);
+        if ($changes === [] || array_is_list($changes)) {
+            throw new \InvalidArgumentException('changes must name at least one field');
+        }
+
+        return $this->submit([
+            'operation' => 'event.update',
+            'tenant_id' => $tenantId,
+            'connection_id' => $connectionId,
+            'idempotency_key' => $idempotencyKey,
+            'send_updates' => $sendUpdates,
+            'external_ref' => $externalRef,
+            'changes' => $changes,
+        ]);
+    }
+
+    /**
+     * Delete an event written through {@see createEvent()}. The finished
+     * operation's `delete_result.already_gone` is true when it was already gone.
+     *
+     * @return array<string, mixed> the operation status
+     */
+    public function deleteEvent(string $tenantId, string $connectionId, string $idempotencyKey, string $externalRef, string $sendUpdates = 'none'): array
+    {
+        self::requireWrite($tenantId, $connectionId, $idempotencyKey, $sendUpdates);
+        ResponseReader::requireNonEmpty('externalRef', $externalRef);
+
+        return $this->submit([
+            'operation' => 'event.delete',
+            'tenant_id' => $tenantId,
+            'connection_id' => $connectionId,
+            'idempotency_key' => $idempotencyKey,
+            'send_updates' => $sendUpdates,
+            'external_ref' => $externalRef,
+        ]);
+    }
+
+    /**
+     * Poll a write by its `job_id`: `200` once it finished, `202` while it runs.
+     *
+     * @return array<string, mixed>
+     */
+    public function operation(string $tenantId, string $jobId): array
+    {
+        ResponseReader::requireNonEmpty('tenantId', $tenantId);
+        ResponseReader::requireNonEmpty('jobId', $jobId);
+
+        return ResponseReader::json($this->client->send(
+            'GET',
+            ResponseReader::query('/v1/calendar/operations/' . rawurlencode($jobId), ['tenant_id' => $tenantId]),
+        ), [200, 202]);
+    }
+
+    /**
+     * An event as stored after its last write through this API (no provider call).
+     *
+     * @return array<string, mixed>
+     */
+    public function writtenEvent(string $tenantId, string $connectionId, string $externalRef): array
+    {
+        ResponseReader::requireNonEmpty('tenantId', $tenantId);
+        ResponseReader::requireNonEmpty('connectionId', $connectionId);
+        ResponseReader::requireNonEmpty('externalRef', $externalRef);
+
+        return ResponseReader::json($this->client->send(
+            'GET',
+            ResponseReader::query(
+                '/v1/calendar/connections/' . rawurlencode($connectionId) . '/written-events/' . rawurlencode($externalRef),
+                ['tenant_id' => $tenantId],
+            ),
+        ));
+    }
+
+    /**
+     * Busy intervals of up to 20 people's calendars over one window (at most
+     * 62 days). Each `$connections` item is `['connection_id' => ...]` and
+     * optionally `'calendar_ids' => [...]` (default the person's own).
+     *
+     * @param list<array{connection_id: string, calendar_ids?: list<string>}> $connections
+     * @return array<string, mixed> `from`, `to` and `connections` (each with `calendars` and `error`)
+     */
+    public function freeBusy(string $tenantId, string $from, string $to, array $connections): array
+    {
+        ResponseReader::requireNonEmpty('tenantId', $tenantId);
+        ResponseReader::requireNonEmpty('from', $from);
+        ResponseReader::requireNonEmpty('to', $to);
+        if ($connections === [] || count($connections) > 20) {
+            throw new \InvalidArgumentException('connections must list 1 to 20 connections');
+        }
+
+        return ResponseReader::json($this->client->send('POST', '/v1/calendar/freebusy', [
+            'tenant_id' => $tenantId,
+            'from' => $from,
+            'to' => $to,
+            'connections' => $connections,
+        ]));
+    }
+
+    private static function requireWrite(string $tenantId, string $connectionId, string $idempotencyKey, string $sendUpdates): void
+    {
+        ResponseReader::requireNonEmpty('tenantId', $tenantId);
+        ResponseReader::requireNonEmpty('connectionId', $connectionId);
+        ResponseReader::requireNonEmpty('idempotencyKey', $idempotencyKey);
+        if (! in_array($sendUpdates, ['none', 'all'], true)) {
+            throw new \InvalidArgumentException('sendUpdates must be none or all');
+        }
+    }
+
+    /**
+     * @param array<string, mixed> $request
+     * @return array<string, mixed>
+     */
+    private function submit(array $request): array
+    {
+        return ResponseReader::json($this->client->send('POST', '/v1/calendar/operations', $request), [200, 202]);
     }
 
     /**

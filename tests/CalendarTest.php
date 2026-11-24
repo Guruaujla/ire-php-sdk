@@ -363,4 +363,158 @@ final class CalendarTest extends TestCase
             self::assertSame(3, $e->retryAfterSeconds);
         }
     }
+
+    /** @return array<string, mixed> */
+    private static function operationBody(string $state = 'completed'): array
+    {
+        return [
+            'job_id' => 'job_1',
+            'operation' => 'event.create',
+            'event_ref' => 'ev_1',
+            'external_ref' => 'booking-1',
+            'connection_id' => 'conn_1',
+            'provider_key' => 'google-calendar',
+            'status' => $state,
+            'idempotent_replay' => false,
+            'polling_url' => '/v1/calendar/operations/job_1?tenant_id=t1',
+            'error' => null,
+            'delete_result' => null,
+            'written_event' => ['event_ref' => 'ev_1', 'status' => 'active'],
+        ];
+    }
+
+    public function testCreateEventPostsTheNeutralBody(): void
+    {
+        $transport = new ScriptedTransport([Clients::json(200, self::operationBody())]);
+        $event = [
+            'external_ref' => 'booking-1',
+            'title' => 'Consult',
+            'start' => ['date_time' => '2026-12-01T10:00:00-05:00'],
+            'end' => ['date_time' => '2026-12-01T10:30:00-05:00'],
+            'conference' => ['create' => true],
+        ];
+        $out = (new Calendar(Clients::client($transport)))->createEvent('t1', 'conn_1', 'key-1', $event, 'all');
+
+        self::assertSame('completed', $out['status']);
+        self::assertSame('POST', $transport->requests[0]->getMethod());
+        self::assertSame('/v1/calendar/operations', $transport->target(0));
+        $body = self::body($transport, 0);
+        self::assertSame('event.create', $body['operation']);
+        self::assertSame('t1', $body['tenant_id']);
+        self::assertSame('conn_1', $body['connection_id']);
+        self::assertSame('key-1', $body['idempotency_key']);
+        self::assertSame('all', $body['send_updates']);
+        self::assertSame($event, $body['event']);
+    }
+
+    public function testCreateEventAccepts202(): void
+    {
+        $transport = new ScriptedTransport([Clients::json(202, self::operationBody('queued'))]);
+        $out = (new Calendar(Clients::client($transport)))->createEvent('t1', 'conn_1', 'key-1', ['external_ref' => 'b']);
+        self::assertSame('queued', $out['status']);
+        self::assertSame('none', self::body($transport, 0)['send_updates']);
+    }
+
+    public function testCreateEventRefusesMissingExternalRefBeforeSending(): void
+    {
+        $transport = new ScriptedTransport([]);
+        $this->expectException(\InvalidArgumentException::class);
+        (new Calendar(Clients::client($transport)))->createEvent('t1', 'conn_1', 'key-1', ['title' => 'x']);
+    }
+
+    public function testWritesRefuseAnUnknownSendUpdates(): void
+    {
+        $transport = new ScriptedTransport([]);
+        $this->expectException(\InvalidArgumentException::class);
+        (new Calendar(Clients::client($transport)))->deleteEvent('t1', 'conn_1', 'key-1', 'b', 'some');
+    }
+
+    public function testUpdateEventSendsExternalRefAndChanges(): void
+    {
+        $transport = new ScriptedTransport([Clients::json(200, self::operationBody())]);
+        (new Calendar(Clients::client($transport)))->updateEvent('t1', 'conn_1', 'key-2', 'booking-1', ['title' => 'New']);
+        $body = self::body($transport, 0);
+        self::assertSame('event.update', $body['operation']);
+        self::assertSame('booking-1', $body['external_ref']);
+        self::assertSame(['title' => 'New'], $body['changes']);
+        self::assertArrayNotHasKey('event', $body);
+    }
+
+    public function testUpdateEventRefusesEmptyOrListChanges(): void
+    {
+        $calendar = new Calendar(Clients::client(new ScriptedTransport([])));
+        foreach ([[], ['x']] as $changes) {
+            try {
+                $calendar->updateEvent('t1', 'conn_1', 'key-2', 'booking-1', $changes);
+                self::fail('expected InvalidArgumentException');
+            } catch (\InvalidArgumentException) {
+                self::addToAssertionCount(1);
+            }
+        }
+    }
+
+    public function testDeleteEventSendsExternalRefOnly(): void
+    {
+        $transport = new ScriptedTransport([Clients::json(200, self::operationBody())]);
+        (new Calendar(Clients::client($transport)))->deleteEvent('t1', 'conn_1', 'key-3', 'booking-1');
+        $body = self::body($transport, 0);
+        self::assertSame('event.delete', $body['operation']);
+        self::assertSame('booking-1', $body['external_ref']);
+        self::assertArrayNotHasKey('changes', $body);
+    }
+
+    public function testOperationPollsWithTenantAndAccepts202(): void
+    {
+        $transport = new ScriptedTransport([Clients::json(202, self::operationBody('processing'))]);
+        $out = (new Calendar(Clients::client($transport)))->operation('t1', 'job/1');
+        self::assertSame('processing', $out['status']);
+        self::assertSame('GET', $transport->requests[0]->getMethod());
+        self::assertSame('/v1/calendar/operations/job%2F1?tenant_id=t1', $transport->target(0));
+    }
+
+    public function testWrittenEventPath(): void
+    {
+        $transport = new ScriptedTransport([Clients::json(200, ['event_ref' => 'ev_1'])]);
+        (new Calendar(Clients::client($transport)))->writtenEvent('t1', 'conn_1', 'booking 1');
+        self::assertSame('/v1/calendar/connections/conn_1/written-events/booking%201?tenant_id=t1', $transport->target(0));
+    }
+
+    public function testFreeBusyPostsTheWindowAndConnections(): void
+    {
+        $transport = new ScriptedTransport([Clients::json(200, ['from' => self::FROM, 'to' => self::TO, 'connections' => []])]);
+        $connections = [['connection_id' => 'conn_1'], ['connection_id' => 'conn_2', 'calendar_ids' => ['primary', 'team@example.com']]];
+        (new Calendar(Clients::client($transport)))->freeBusy('t1', self::FROM, self::TO, $connections);
+        self::assertSame('POST', $transport->requests[0]->getMethod());
+        self::assertSame('/v1/calendar/freebusy', $transport->target(0));
+        $body = self::body($transport, 0);
+        self::assertSame(['tenant_id' => 't1', 'from' => self::FROM, 'to' => self::TO, 'connections' => $connections], $body);
+    }
+
+    public function testFreeBusyRefusesNoneOrMoreThanTwentyConnections(): void
+    {
+        $calendar = new Calendar(Clients::client(new ScriptedTransport([])));
+        $many = array_fill(0, 21, ['connection_id' => 'c']);
+        foreach ([[], $many] as $connections) {
+            try {
+                $calendar->freeBusy('t1', self::FROM, self::TO, $connections);
+                self::fail('expected InvalidArgumentException');
+            } catch (\InvalidArgumentException) {
+                self::addToAssertionCount(1);
+            }
+        }
+    }
+
+    public function testEventBusyIsARuntimeProblem(): void
+    {
+        $transport = new ScriptedTransport([
+            Clients::json(409, ['type' => 'about:blank', 'title' => 'Busy', 'status' => 409, 'code' => 'calendar.event_busy']),
+        ]);
+        try {
+            (new Calendar(Clients::client($transport)))->deleteEvent('t1', 'conn_1', 'key-3', 'booking-1');
+            self::fail('expected RuntimeProblemException');
+        } catch (RuntimeProblemException $e) {
+            self::assertSame('calendar.event_busy', $e->problemCode);
+            self::assertSame(409, $e->httpStatus);
+        }
+    }
 }

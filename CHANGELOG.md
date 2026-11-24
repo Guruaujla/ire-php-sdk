@@ -10,12 +10,20 @@ Releases are published to `Guruaujla/ire-php-sdk` as `v` tags.
   `disconnect()` removes a person's connection (pass the stored
   `provider_account_id`, or the SDK reads it from `providers()`, which lists
   calendar connections in every state).
+- `Calendar` writes and free/busy: `createEvent()`, `updateEvent()` and
+  `deleteEvent()` (`POST /v1/calendar/operations`; events named by your
+  `external_ref`, `conference` `['create' => true]` for a Google Meet link,
+  `$sendUpdates` `none` or `all`), `operation()` polls a write by `job_id`,
+  `writtenEvent()` reads a written event as stored, and `freeBusy()` reads
+  busy intervals of up to 20 connections over one window.
 - `Connections::start()` takes an optional `$principalRef` (required for
   `google-calendar`, refused for other providers); `PROVIDER_KEYS` adds
   `google-calendar`. `reconnect()` refuses a per-person connection: use
   `Calendar::connect()` with the same `principalRef`.
-- `RuntimeProblemException::decision()` knows the `calendar.*` codes and
-  `connect.principal_ref_invalid`; the table ships in
+- `RuntimeProblemException::decision()` knows the `calendar.*` codes
+  (including the write refusals: `event_busy` decides `retry_same_request`,
+  `request_superseded` and `provider_error` `review_and_resubmit`,
+  `account_changed` `fix_setup`) and `connect.principal_ref_invalid`; the table ships in
   `sdks/problem-decisions.json` (`calendarDecisions`).
 
 ## 1.14.0 (2026-11-23)

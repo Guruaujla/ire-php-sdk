@@ -136,7 +136,7 @@ final class RuntimeProblemException extends \RuntimeException
         'meetings.provider_unavailable' => self::ASK_OPERATOR,
     ];
 
-    /** Calendar API refusals (`/v1/calendar/*`); reads only, so nothing to reconcile. */
+    /** Calendar API refusals (`/v1/calendar/*`); a calendar write is never financial, so nothing to reconcile. */
     private const CALENDAR_DECISIONS = [
         'calendar.invalid_query' => self::FIX_REQUEST,
         'calendar.invalid_cursor' => self::FIX_REQUEST,
@@ -144,11 +144,22 @@ final class RuntimeProblemException extends \RuntimeException
         'calendar.connection_not_found' => self::FIX_REQUEST,
         'calendar.calendar_not_found' => self::FIX_REQUEST,
         'connect.principal_ref_invalid' => self::FIX_REQUEST,
+        'calendar.event_not_found' => self::FIX_REQUEST,
+        'calendar.operation_not_found' => self::FIX_REQUEST,
+        'calendar.capability_unsupported' => self::FIX_REQUEST,
+        'calendar.event_exists' => self::FIX_REQUEST,
+        'calendar.event_deleted' => self::FIX_REQUEST,
+        'calendar.calendar_mismatch' => self::FIX_REQUEST,
+        'calendar.idempotency_conflict' => self::FIX_REQUEST,
+        'calendar.request_superseded' => self::REVIEW_AND_RESUBMIT,
+        'calendar.provider_error' => self::REVIEW_AND_RESUBMIT,
         'calendar.insufficient_scopes' => self::FIX_SETUP,
         'calendar.connection_not_active' => self::FIX_SETUP,
+        'calendar.account_changed' => self::FIX_SETUP,
         'calendar.rate_limited' => self::RETRY_SAME_REQUEST,
         'calendar.provider_unavailable' => self::RETRY_SAME_REQUEST,
         'calendar.state_unavailable' => self::RETRY_SAME_REQUEST,
+        'calendar.event_busy' => self::RETRY_SAME_REQUEST,
         'calendar.operation_disabled' => self::ASK_OPERATOR,
         'calendar.provider_not_configured' => self::ASK_OPERATOR,
     ];
