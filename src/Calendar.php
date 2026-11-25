@@ -15,7 +15,8 @@ use Ezee\IntegrationRuntime\Internal\ResponseReader;
  *    `providerKey` `google-calendar` and `principalRef` (your id for the
  *    person). Store the returned `connection_id` against the person; it
  *    works once they finish consent. Connecting the same `principalRef`
- *    again reconnects that same connection.
+ *    again reconnects that same connection; after a disconnect the person
+ *    may sign in with another Google account to switch accounts.
  * 2. {@see providers()} lists the calendar providers with their
  *    capabilities and the tenant's calendar connections in every state (with
  *    `principal_ref` and `status`).
@@ -49,6 +50,8 @@ final class Calendar
      * Start connecting one person's calendar. Redirect the person to
      * `authorize_url`; store `connection_id` against the person. Calling it
      * again with the same `$principalRef` reconnects that same connection.
+     * To switch the person to another Google account, disconnect first, then
+     * connect again with the same `$principalRef` (same `connection_id`).
      *
      * @param string $principalRef your id for the person (1-255 characters), for example your user id
      * @param string $state one-time, unpredictable value you stored server-side for this attempt

@@ -19,7 +19,9 @@ Releases are published to `Guruaujla/ire-php-sdk` as `v` tags.
 - `Connections::start()` takes an optional `$principalRef` (required for
   `google-calendar`, refused for other providers); `PROVIDER_KEYS` adds
   `google-calendar`. `reconnect()` refuses a per-person connection: use
-  `Calendar::connect()` with the same `principalRef`.
+  `Calendar::connect()` with the same `principalRef`. After a disconnect,
+  `Calendar::connect()` with the same `principalRef` may sign in with
+  another Google account (same `connection_id`).
 - `RuntimeProblemException::decision()` knows the `calendar.*` codes
   (including the write refusals: `event_busy` decides `retry_same_request`,
   `request_superseded` and `provider_error` `review_and_resubmit`,
