@@ -35,7 +35,10 @@ use Ezee\IntegrationRuntime\Internal\ResponseReader;
  *    otherwise poll {@see operation()} with `job_id`. Retry a lost answer
  *    with the same idempotency key and the same details: it replays.
  *    `conference` `['create' => true]` adds the provider's own video link
- *    (Google Meet). `$sendUpdates` `all` lets the provider email guests.
+ *    (Google Meet); on an update of an event that already has one, the link
+ *    is kept, and `['remove' => true]` takes it off where the provider's
+ *    `conference_removable` capability is true. `$sendUpdates` `all` lets the
+ *    provider email guests.
  * 6. {@see writtenEvent()} reads an event as stored after its last write here.
  * 7. {@see freeBusy()} reads when up to 20 people are busy over one window.
  *    An `error` on a connection or calendar means unknown time, never free.

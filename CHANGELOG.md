@@ -4,6 +4,24 @@ Releases are published to `Guruaujla/ire-php-sdk` as `v` tags.
 
 ## Unreleased
 
+## 1.15.0 (2026-11-26)
+
+- `Calendar::updateEvent()`: `conference` `['create' => true]` on an event
+  that already has a video link now keeps that link (guests keep the one they
+  were sent); `['remove' => true]` takes the link off where the provider's
+  `conference_removable` capability is true. Capabilities add
+  `conference_removable` and `silent_attendee_writes` (when false, a write
+  that touches guests needs `$sendUpdates` `all`, or it is refused with 422
+  `calendar.capability_unsupported` before anything is sent).
+- A reschedule without `timezone` keeps the event's stored zone. `date` must
+  be a real date and `timezone` a known IANA zone, and when the zone is known
+  (sent, or stored on update) a start or end in the repeated hour when
+  daylight saving ends is refused (`request.validation_failed`). Fraction
+  digits beyond milliseconds are cut.
+- A deleted written event reads `status` `cancelled`. `fields_ignored` may
+  list `start`, `end` or `conference` when the provider did not apply them as
+  sent; compare instants, not `date_time` strings.
+
 - `RuntimeProblemException.decision()` knows the Calendar write-job error codes: the
   per-action `calendar.create_uncertain`, `update_uncertain` and
   `delete_uncertain`, `calendar.event_gone`, `event_id_conflict`,
