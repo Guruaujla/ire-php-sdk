@@ -172,8 +172,13 @@ final class Signer
      * Total by construction: an invalid byte counts as one unit rather than
      * throwing, which keeps the following visible-ASCII guard the thing that
      * rejects it.
+     *
+     * Public for the SDK's own field checks (for example the connect-session
+     * principal label); not a supported API.
+     *
+     * @internal
      */
-    private static function utf16Length(string $value): int
+    public static function utf16Length(string $value): int
     {
         $units = 0;
         $length = strlen($value);

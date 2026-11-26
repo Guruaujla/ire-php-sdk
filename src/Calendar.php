@@ -19,7 +19,8 @@ use Ezee\IntegrationRuntime\Internal\ResponseReader;
  *    may sign in with another Google account to switch accounts.
  * 2. {@see providers()} lists the calendar providers with their
  *    capabilities and the tenant's calendar connections in every state (with
- *    `principal_ref` and `status`).
+ *    `principal_ref`, `principal_label`, `status`, and `granted_capabilities`
+ *    / `consent` for what the person allowed).
  * 3. {@see calendars()} lists the calendars the person can see; any of them
  *    may be read.
  * 4. {@see events()} reads one calendar's events over a window
@@ -55,11 +56,14 @@ final class Calendar
      *
      * @param string $principalRef your id for the person (1-255 characters), for example your user id
      * @param string $state one-time, unpredictable value you stored server-side for this attempt
+     * @param string|null $principalLabel optional display name for the person (1-120 characters),
+     *   for example "Dr. Patel, front desk"; shown in the developer portal and returned by
+     *   providers() so support can tell a customer's calendars apart. Null keeps any stored label.
      * @return array{session_id: string, authorize_url: string, expires_at: int, connection_id: string|null}
      */
-    public function connect(string $tenantId, string $principalRef, string $returnUrl, string $state, string $providerKey = 'google-calendar'): array
+    public function connect(string $tenantId, string $principalRef, string $returnUrl, string $state, string $providerKey = 'google-calendar', ?string $principalLabel = null): array
     {
-        return (new Connections($this->client))->start($tenantId, $returnUrl, $state, $providerKey, $principalRef);
+        return (new Connections($this->client))->start($tenantId, $returnUrl, $state, $providerKey, $principalRef, $principalLabel);
     }
 
     /**

@@ -4,6 +4,15 @@ Releases are published to `Guruaujla/ire-php-sdk` as `v` tags.
 
 ## Unreleased
 
+- `Calendar::connect()` and `Connections::start()` take an optional
+  `principalLabel`: your display name for the person (1-120 characters),
+  shown in the developer portal and returned on connection reads.
+- `Calendar::providers()` connections carry `principal_label`,
+  `granted_capabilities` (`read_calendars`, `read_events`, `write_events`,
+  `free_busy`) and `consent` (`full`, `partial` or null): when `partial`, ask
+  the person to reconnect and leave every box ticked.
+- Connection reads (`GET /v1/connections`) carry `principal_ref` and
+  `principal_label` for per-user connections, and the calendar account id.
 - New `Calendar` (`/v1/calendar/*`): `connect($tenantId, $principalRef, ...)`
   starts connecting one person's Google Calendar, `providers()`,
   `calendars()`, `events()` and `eachEvent()` read calendars and events, and

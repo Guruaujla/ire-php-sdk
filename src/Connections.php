@@ -32,9 +32,12 @@ final class Connections
      *   configuration first
      * @param string|null $principalRef your id for the person (1-255 characters);
      *   required for 'google-calendar' (see {@see Calendar::connect()}), refused otherwise
+     * @param string|null $principalLabel optional display name for that person (1-120
+     *   characters), shown in the developer portal and on connection reads; only with
+     *   $principalRef. A later connect with a label replaces it; null keeps it.
      * @return array{session_id: string, authorize_url: string, expires_at: int, connection_id: string|null}
      */
-    public function start(string $tenantId, string $returnUrl, string $state, string $providerKey = 'quickbooks', ?string $principalRef = null): array
+    public function start(string $tenantId, string $returnUrl, string $state, string $providerKey = 'quickbooks', ?string $principalRef = null, ?string $principalLabel = null): array
     {
         ResponseReader::requireNonEmpty('tenantId', $tenantId);
         ResponseReader::requireNonEmpty('returnUrl', $returnUrl);
@@ -49,6 +52,9 @@ final class Connections
         if (! $perUser && $principalRef !== null) {
             throw new \InvalidArgumentException('principalRef is only accepted for ' . implode(', ', self::PER_USER_PROVIDER_KEYS));
         }
+        if ($principalLabel !== null && ($principalRef === null || trim($principalLabel) === '' || Signer::utf16Length(trim($principalLabel)) > 120)) {
+            throw new \InvalidArgumentException('principalLabel (1-120 characters) is accepted only with principalRef');
+        }
         $request = [
             'tenant_id' => $tenantId,
             'provider_key' => $providerKey,
@@ -57,6 +63,9 @@ final class Connections
         ];
         if ($principalRef !== null) {
             $request['principal_ref'] = $principalRef;
+        }
+        if ($principalLabel !== null) {
+            $request['principal_label'] = trim($principalLabel);
         }
         $body = ResponseReader::json($this->client->send('POST', '/v1/connections/connect-session', $request), [200, 201]);
         $sessionId = $body['session_id'] ?? null;

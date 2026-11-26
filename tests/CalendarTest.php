@@ -230,6 +230,46 @@ final class CalendarTest extends TestCase
         self::assertSame('state-1', $body['state']);
     }
 
+    public function testConnectSendsTrimmedPrincipalLabel(): void
+    {
+        $transport = new ScriptedTransport([Clients::json(201, self::session('grant_1'))]);
+        (new Calendar(Clients::client($transport)))->connect('t1', 'user-42', 'https://app.test/return', 'state-1', 'google-calendar', '  Dr. Patel  ');
+
+        $body = self::body($transport, 0);
+        self::assertSame('user-42', $body['principal_ref']);
+        self::assertSame('Dr. Patel', $body['principal_label']);
+    }
+
+    public function testConnectWithoutPrincipalLabelSendsNone(): void
+    {
+        $transport = new ScriptedTransport([Clients::json(201, self::session('grant_1'))]);
+        (new Calendar(Clients::client($transport)))->connect('t1', 'user-42', 'https://app.test/return', 'state-1');
+
+        self::assertArrayNotHasKey('principal_label', self::body($transport, 0));
+    }
+
+    /** @return iterable<string, array{string, ?string, string}> */
+    public static function invalidPrincipalLabels(): iterable
+    {
+        yield 'empty' => ['google-calendar', 'user-1', '   '];
+        yield 'too long' => ['google-calendar', 'user-1', str_repeat('x', 121)];
+        // The server counts UTF-16 units: 61 emoji are 122.
+        yield 'too long in UTF-16 units' => ['google-calendar', 'user-1', str_repeat("\u{1F600}", 61)];
+        yield 'without principal_ref' => ['quickbooks', null, 'Front desk'];
+    }
+
+    #[DataProvider('invalidPrincipalLabels')]
+    public function testStartRefusesAnInvalidPrincipalLabel(string $providerKey, ?string $principalRef, string $label): void
+    {
+        $transport = new ScriptedTransport([]);
+        try {
+            (new Connections(Clients::client($transport)))->start('t1', 'https://app.test/return', 's', $providerKey, $principalRef, $label);
+            self::fail('expected InvalidArgumentException');
+        } catch (\InvalidArgumentException) {
+            self::assertSame([], $transport->requests);
+        }
+    }
+
     public function testStartRefusesPrincipalRefForQuickBooks(): void
     {
         $transport = new ScriptedTransport([]);
