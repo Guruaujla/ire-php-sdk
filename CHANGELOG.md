@@ -4,6 +4,12 @@ Releases are published to `Guruaujla/ire-php-sdk` as `v` tags.
 
 ## Unreleased
 
+- `RuntimeProblemException.decision()` knows the Calendar write-job error codes: the
+  per-action `calendar.create_uncertain`, `update_uncertain` and
+  `delete_uncertain`, `calendar.event_gone`, `event_id_conflict`,
+  `rate_limit_exhausted` (a provider throttle or usage limit; nothing was
+  written: send it again later with a new key) and `result_unverifiable` decide
+  `review_and_resubmit`; `calendar.calendar_read_only` decides `fix_request`.
 - `Calendar::connect()` and `Connections::start()` take an optional
   `principalLabel`: your display name for the person (1-120 characters),
   shown in the developer portal and returned on connection reads.
