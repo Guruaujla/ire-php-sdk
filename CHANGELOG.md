@@ -4,6 +4,28 @@ Releases are published to `Guruaujla/ire-php-sdk` as `v` tags.
 
 ## Unreleased
 
+## 1.16.0 (2026-11-27)
+
+- `Email` (the provider-neutral Email API, `/v1/email/*`): send email from a
+  person's own connected Gmail mailbox, at most once. `connect()` and
+  `disconnect()` for one person's mailbox (`google-mail`, needs
+  `principalRef`); `providers()`; `send()` (`$idempotencyKey` null uses
+  `external_ref`; message fields include `from.name`, `reply` and
+  `retry_of`); `operation()`, `waitFor()` (polls until the send finished,
+  waiting out 429 and 5xx reads) and `isFinished()`; `decisionFor()` (the
+  decision for a finished send's `error.code`, null when there is none);
+  `sent()` reads a message by `external_ref`. See email.md.
+- `RuntimeProblemException::decision()` knows every Email code from the
+  runtime's closed email error catalog, including `email.not_admitted` and
+  `email.admission_refused`.
+- `Connections::PROVIDER_KEYS` and `PER_USER_PROVIDER_KEYS` add
+  `google-mail`.
+- `Connections::disconnect()` without `$providerAccountId` now uses the
+  `provider_account_id` from the connection read it already makes, so it
+  works for every provider and for a tenant with several connections (no
+  extra request). An older runtime that omits it falls back to the provider
+  list as before.
+
 ## 1.15.0 (2026-11-26)
 
 - `Calendar::updateEvent()`: `conference` `['create' => true]` on an event

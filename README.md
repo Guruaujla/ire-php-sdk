@@ -390,6 +390,42 @@ Connecting the same `principalRef` again reconnects the same connection.
 `$calendar->disconnect($tenantId, $connectionId, $idempotencyKey)` deletes the
 runtime's tokens. Steps, fields and errors: `calendar.md` in the runtime docs.
 
+### Email
+
+`Email` sends email from one person's own connected mailbox (Gmail first, then
+Microsoft 365) with the same code for every provider. A message is sent at
+most once.
+
+```php
+use Ezee\IntegrationRuntime\Email;
+
+$email = new Email($client);
+$session = $email->connect($tenantId, (string) $user->id, $returnUrl, $state);
+// Redirect to $session['authorize_url']; store $session['connection_id'] on the user.
+
+$status = $email->send($tenantId, $connectionId, null, [ // null key: uses external_ref
+    'external_ref' => 'invoice-1042-email-1',
+    'to' => [['email' => 'customer@example.com', 'name' => 'Ana Lopez']],
+    'subject' => 'Your invoice 1042',
+    'text' => 'Hello Ana, …',
+]);
+if (!Email::isFinished($status)) {
+    $status = $email->waitFor($tenantId, $status['job_id']);
+}
+if (Email::isFinished($status)) {
+    // null: submitted. 'review_and_resubmit': for email.send_uncertain check
+    // the Sent folder first (it may have gone out); otherwise nothing was sent:
+    // send again with a new external_ref and 'retry_of'. 'fix_setup': ask the
+    // person to reconnect. Anything else: contact support.
+    $decision = Email::decisionFor($status);
+} // else still running: read the job_id again later
+```
+
+`send_uncertain` means the provider's answer was lost: the runtime never
+sends it again. `$email->disconnect($tenantId, $connectionId, $idempotencyKey)`
+deletes the runtime's tokens. Steps, fields, results and errors: `email.md` in
+the runtime docs.
+
 ### Activity log
 
 `Activity` reads the tenant's integration activity, newest first, to show your

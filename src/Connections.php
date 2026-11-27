@@ -18,20 +18,21 @@ use Ezee\IntegrationRuntime\Internal\ResponseReader;
 final class Connections
 {
     /** The providers the public connect-session endpoint accepts. */
-    public const PROVIDER_KEYS = ['quickbooks', 'xero', 'google-meet', 'microsoft-teams', 'google-calendar'];
+    public const PROVIDER_KEYS = ['quickbooks', 'xero', 'google-meet', 'microsoft-teams', 'google-calendar', 'google-mail'];
 
     /** Providers whose connections belong to one person: connect-session needs `principal_ref`. */
-    public const PER_USER_PROVIDER_KEYS = ['google-calendar'];
+    public const PER_USER_PROVIDER_KEYS = ['google-calendar', 'google-mail'];
 
     public function __construct(private readonly Client $client) {}
 
     /**
      * @param string $state one-time, unpredictable value you stored server-side for this attempt
      * @param string $providerKey 'quickbooks' (the default), 'xero', 'google-meet',
-     *   'microsoft-teams' or 'google-calendar'; a provider needs the app's provider
-     *   configuration first
+     *   'microsoft-teams', 'google-calendar' or 'google-mail'; a provider needs the
+     *   app's provider configuration first
      * @param string|null $principalRef your id for the person (1-255 characters);
-     *   required for 'google-calendar' (see {@see Calendar::connect()}), refused otherwise
+     *   required for 'google-calendar' and 'google-mail' (see {@see Calendar::connect()}
+     *   and {@see Email::connect()}), refused otherwise
      * @param string|null $principalLabel optional display name for that person (1-120
      *   characters), shown in the developer portal and on connection reads; only with
      *   $principalRef. A later connect with a label replaces it; null keeps it.
@@ -106,7 +107,7 @@ final class Connections
         }
         if (in_array($providerKey, self::PER_USER_PROVIDER_KEYS, true)) {
             throw new \InvalidArgumentException(
-                'Connection ' . $connectionId . ' belongs to one person: reconnect it with Calendar::connect() and the same principalRef.',
+                'Connection ' . $connectionId . ' belongs to one person: reconnect it with Calendar::connect() or Email::connect() and the same principalRef.',
             );
         }
 
@@ -114,7 +115,7 @@ final class Connections
     }
 
     /**
-     * Disconnect one native accounting connection (QuickBooks or Xero):
+     * Disconnect one connection (accounting, meetings, calendar or mailbox):
      * `POST /v1/connections/{id}/disconnect`. Writes for the connection stop
      * at once, so ask the admin to confirm first. Reads the connection (one
      * signed GET) for its `provider_key`.
@@ -124,14 +125,12 @@ final class Connections
      * key (for example from before a reconnect) returns the earlier result
      * and disconnects nothing.
      *
-     * `$providerAccountId`: the company id (QuickBooks company or Xero tenant
-     * id) you stored from {@see Accounting::providers()} `connection` when the
-     * connection was confirmed (connection reads also return it). When you
-     * omit it, the SDK reads `providers()` (one more signed GET) and uses its
-     * `connection` if it is this connection. That works only while this is the
-     * tenant's one connected accounting connection, so pass the stored value
-     * to disconnect an extra connection or one that needs a reconnect, and on
-     * a retry.
+     * `$providerAccountId`: the account id you stored when the connection was
+     * confirmed (the QuickBooks company, Xero tenant, meeting account or the
+     * person's Google account; connection reads return it). When you omit it,
+     * the SDK uses the `provider_account_id` of the connection read above (no
+     * extra request). Pass the stored value when you want the disconnect
+     * refused if the connection now points at a different account.
      *
      * A refusal throws {@see RuntimeProblemException}: retry
      * `409 oauth.lifecycle_busy` and `503 oauth.disconnect_retryable` later
@@ -160,6 +159,13 @@ final class Connections
         $providerKey = $connection['provider_key'] ?? null;
         if (! is_string($providerKey) || ! in_array($providerKey, self::PROVIDER_KEYS, true)) {
             throw new \UnexpectedValueException('Connection ' . $connectionId . ' has no provider_key this SDK can disconnect.');
+        }
+        // The connection read carries the account id for every provider this
+        // SDK disconnects; an older runtime that omits it falls back to the
+        // provider list.
+        $readAccountId = $connection['provider_account_id'] ?? null;
+        if (is_string($readAccountId) && $readAccountId !== '') {
+            $providerAccountId ??= $readAccountId;
         }
         $providerAccountId ??= in_array($providerKey, self::PER_USER_PROVIDER_KEYS, true)
             ? (new Calendar($this->client))->providerAccountId($tenantId, $connectionId)
