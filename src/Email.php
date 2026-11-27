@@ -58,7 +58,7 @@ final class Email
     /**
      * Send a message from the connection's mailbox.
      *
-     * @param array<string, mixed> $message `external_ref`, recipients, `subject`, `text`/`html`, optional `reply` and `retry_of`
+     * @param array<string, mixed> $message `external_ref`, recipients, `subject`, `text`/`html`, optional `from` (`name`), `reply` (`internet_message_id`, `provider_message_id`, `thread_id`, `references`) and `retry_of`
      * @return array<string, mixed> the operation status; `message.status` once it finished
      */
     public function send(string $tenantId, string $connectionId, string $idempotencyKey, array $message): array

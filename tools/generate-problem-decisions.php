@@ -49,6 +49,13 @@ if ($calendarConstant === false) {
 }
 /** @var array<string, string> $calendarTable */
 $calendarTable = $calendarConstant->getValue();
+$emailConstant = $reflection->getReflectionConstant('EMAIL_DECISIONS');
+if ($emailConstant === false) {
+    fwrite(STDERR, "RuntimeProblemException::EMAIL_DECISIONS is missing\n");
+    exit(1);
+}
+/** @var array<string, string> $emailTable */
+$emailTable = $emailConstant->getValue();
 $decisions = [];
 foreach ($reflection->getReflectionConstants() as $constant) {
     if ($constant->isPublic() && is_string($constant->getValue())) {
@@ -102,6 +109,10 @@ $inputs[] = [404, 'calendar.some_future_code'];
 foreach (array_keys($calendarTable) as $code) {
     $inputs[] = [409, $code];
 }
+$inputs[] = [404, 'email.some_future_code'];
+foreach (array_keys($emailTable) as $code) {
+    $inputs[] = [409, $code];
+}
 $cases = [];
 foreach ($inputs as [$status, $code]) {
     $cases[] = ['status' => $status, 'code' => $code, 'decision' => (new RuntimeProblemException($status, $code))->decision()];
@@ -113,6 +124,7 @@ $json = json_encode([
     'accountingDecisions' => $table,
     'meetingsDecisions' => $meetingsTable,
     'calendarDecisions' => $calendarTable,
+    'emailDecisions' => $emailTable,
     'cases' => $cases,
 ], JSON_PRETTY_PRINT | JSON_UNESCAPED_SLASHES | JSON_THROW_ON_ERROR);
 

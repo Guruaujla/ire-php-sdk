@@ -44,6 +44,14 @@ final class RuntimeProblemDecisionFixtureTest extends TestCase
         self::assertSame($table->getValue(), $fixture['calendarDecisions'] ?? null);
     }
 
+    public function testEmailTableEqualsTheSharedFixture(): void
+    {
+        $fixture = Clients::decodeFile(self::FIXTURE);
+        $table = (new \ReflectionClass(RuntimeProblemException::class))->getReflectionConstant('EMAIL_DECISIONS');
+        self::assertNotFalse($table);
+        self::assertSame($table->getValue(), $fixture['emailDecisions'] ?? null);
+    }
+
     public function testDecisionConstantsEqualTheSharedFixture(): void
     {
         $fixture = Clients::decodeFile(self::FIXTURE);

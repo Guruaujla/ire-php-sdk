@@ -173,6 +173,40 @@ final class RuntimeProblemException extends \RuntimeException
     ];
 
     /**
+     * Email API codes (email.md "Errors"), generated from the runtime's
+     * closed email error catalog.
+     *
+     * @var array<string, string>
+     */
+    private const EMAIL_DECISIONS = [
+        'email.send_uncertain' => self::REVIEW_AND_RESUBMIT,
+        'email.provider_refused' => self::REVIEW_AND_RESUBMIT,
+        'email.provider_limit' => self::REVIEW_AND_RESUBMIT,
+        'email.provider_rate_limited' => self::REVIEW_AND_RESUBMIT,
+        'email.reconnect_required' => self::FIX_SETUP,
+        'email.insufficient_scopes' => self::FIX_SETUP,
+        'email.admin_blocked' => self::FIX_SETUP,
+        'email.connection_not_active' => self::FIX_SETUP,
+        'email.operation_disabled' => self::ASK_OPERATOR,
+        'email.not_admitted' => self::REVIEW_AND_RESUBMIT,
+        'email.provider_error' => self::REVIEW_AND_RESUBMIT,
+        'email.connection_not_found' => self::FIX_REQUEST,
+        'email.provider_not_enabled' => self::FIX_SETUP,
+        'email.provider_unavailable' => self::RETRY_SAME_REQUEST,
+        'email.state_unavailable' => self::RETRY_SAME_REQUEST,
+        'email.rate_limited' => self::RETRY_SAME_REQUEST,
+        'email.idempotency_conflict' => self::FIX_REQUEST,
+        'email.external_ref_used' => self::FIX_REQUEST,
+        'email.retry_of_not_found' => self::FIX_REQUEST,
+        'email.retry_of_not_retryable' => self::FIX_REQUEST,
+        'email.retry_of_already_retried' => self::FIX_REQUEST,
+        'email.too_many_recipients' => self::FIX_REQUEST,
+        'email.admission_refused' => self::ASK_OPERATOR,
+        'email.operation_not_found' => self::FIX_REQUEST,
+        'email.message_not_found' => self::FIX_REQUEST,
+    ];
+
+    /**
      * @param array<string, mixed>|null $problem the decoded problem+json body, when there was one
      */
     public function __construct(
@@ -208,6 +242,9 @@ final class RuntimeProblemException extends \RuntimeException
         }
         if (isset(self::CALENDAR_DECISIONS[$code])) {
             return self::CALENDAR_DECISIONS[$code];
+        }
+        if (isset(self::EMAIL_DECISIONS[$code])) {
+            return self::EMAIL_DECISIONS[$code];
         }
         if (str_starts_with($code, 'accounting.') && $code !== 'accounting.provider_refused') {
             // A financial-write refusal this SDK does not know: never mutate and resend.
